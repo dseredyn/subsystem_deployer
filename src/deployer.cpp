@@ -66,6 +66,10 @@ int main(int argc, char** argv)
     SubsystemDeployer depl(name);
 
 	if (0 == __os_init(argc, argv)) {
+        RTT::Logger::log().setStdStream(std::cerr);
+        RTT::Logger::log().mayLogStdOut(true);
+        RTT::Logger::log().setLogLevel(RTT::Logger::Info);
+
         depl.initializeSubsystem("TODO");
 
         depl.runScripts(std::vector<std::string>());    // TODO

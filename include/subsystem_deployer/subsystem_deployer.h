@@ -36,7 +36,9 @@ class SubsystemDeployer {
 public:
     explicit SubsystemDeployer(const std::string& name);
 
-    void initializeSubsystem(const std::string& master_service_name);
+    bool import(const std::string& name);
+
+    bool initializeSubsystem(const std::string& master_service_name);
 
     void runScripts(const std::vector<std::string>& scriptFiles);
 
@@ -47,6 +49,7 @@ public:
 private:
     std::string name_;
     boost::shared_ptr<OCL::DeploymentComponent > dc_;
+    RTT::OperationCaller<bool(const std::string&)> ros_import_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_
