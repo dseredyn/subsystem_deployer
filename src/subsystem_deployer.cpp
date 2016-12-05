@@ -25,8 +25,6 @@
  ***************************************************************************/
 
 #include "subsystem_deployer/subsystem_deployer.h"
-#include "common_behavior/master_service_requester.h"
-#include "common_behavior/master_service.h"
 
 #include <rtt/rtt-config.h>
 #include <rtt/os/main.h>
@@ -73,6 +71,14 @@ static void printInputBufferInfo(const common_behavior::InputBufferInfo& info) {
         << Logger::endl;
 }
 
+static void printOutputBufferInfo(const common_behavior::OutputBufferInfo& info) {
+    Logger::log()
+        << " enable_ipc: " << (info.enable_ipc_?"true":"false")
+        << ", ipc_channel_name: \'" << info.ipc_channel_name_ << "\'"
+        << ", interface_prefix: \'" << info.interface_prefix_ << "\'"
+        << Logger::endl;
+}
+
 static bool loadROSParam(RTT::TaskContext* tc) {
     tc->loadService("rosparam");
 
@@ -91,7 +97,211 @@ static bool loadROSParam(RTT::TaskContext* tc) {
     return true;
 }
 
-bool SubsystemDeployer::initializeSubsystem(const std::string& master_service_name) {
+template <class T>
+static bool setComponentProperty(RTT::TaskContext *tc, const std::string& prop_name, const T& value) {
+    RTT::Property<T>* property = dynamic_cast<RTT::Property<T>* >(tc->properties()->getProperty(prop_name));
+    if (!property) {
+        RTT::log(RTT::Error) << "component " << tc->getName() << " does not have property " << prop_name << RTT::endlog();
+        return false;
+    }
+    property->set(value);
+
+    return true;
+}
+
+bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info) {
+    std::string type = buf_info.interface_prefix_ + "Rx";
+    if (buf_info.enable_ipc_) {
+        std::string name = type;
+        if (!dc_->loadComponent(name, type)) {
+            RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+            return false;
+        }
+        RTT::TaskContext* comp = dc_->getPeer(name);
+        if (!setTriggerOnStart(comp, false)) {
+            return false;
+        }
+
+        setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_);
+        setComponentProperty<bool >(comp, "event_port", buf_info.event_port_);
+        setComponentProperty<bool >(comp, "always_update_peers", buf_info.always_update_peers_);
+
+        //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+        if (!comp->configure()) {
+            RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+            return false;
+        }
+        return true;
+    }
+    RTT::log(RTT::Error) << "component " << type << " should not have IPC buffer" << RTT::endlog();
+    return false;
+}
+
+bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::OutputBufferInfo& buf_info) {
+    std::string type = buf_info.interface_prefix_ + "Tx";
+    if (buf_info.enable_ipc_) {
+        std::string name = type;
+        if (!dc_->loadComponent(name, type)) {
+            RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+            return false;
+        }
+        RTT::TaskContext* comp = dc_->getPeer(name);
+        if (!setTriggerOnStart(comp, false)) {
+            return false;
+        }
+
+        setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_);
+
+        //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+        if (!comp->configure()) {
+            RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+            return false;
+        }
+        return true;
+    }
+    RTT::log(RTT::Error) << "component " << type << " should not have IPC buffer" << RTT::endlog();
+    return false;
+}
+
+bool SubsystemDeployer::deployBufferSplitComponent(const common_behavior::BufferInfo& buf_info) {
+    std::string type = buf_info.interface_prefix_ + "Split";
+    std::string name = type;
+    if (!dc_->loadComponent(name, type)) {
+        RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+        return false;
+    }
+    RTT::TaskContext* comp = dc_->getPeer(name);
+    if (!setTriggerOnStart(comp, false)) {
+            return false;
+        }
+
+    //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+    if (!comp->configure()) {
+        RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+        return false;
+    }
+    return true;
+}
+
+bool SubsystemDeployer::deployBufferConcateComponent(const common_behavior::BufferInfo& buf_info) {
+    std::string type = buf_info.interface_prefix_ + "Concate";
+    std::string name = type;
+    if (!dc_->loadComponent(name, type)) {
+        RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+        return false;
+    }
+    RTT::TaskContext* comp = dc_->getPeer(name);
+    if (!setTriggerOnStart(comp, false)) {
+            return false;
+        }
+
+    //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+    if (!comp->configure()) {
+        RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+        return false;
+    }
+    return true;
+}
+
+bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers) {
+    for (int i = 0; i < buffers.size(); ++i) {
+        const common_behavior::InputBufferInfo& buf_info = buffers[i];
+        if (buf_info.enable_ipc_) {
+            if (!deployInputBufferIpcComponent(buf_info)) {
+                return false;
+            }
+        }
+
+        if (!deployBufferSplitComponent(buf_info)) {
+            return false;
+        }
+
+        if (buf_info.enable_ipc_) {
+            // connect Split-Rx ports
+            if (!dc_->connect(buf_info.interface_prefix_ + "Rx.msg_OUTPORT", buf_info.interface_prefix_ + "Split.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << buf_info.interface_prefix_ << RTT::endlog();
+                return false;
+            }
+
+            // connect Rx to master_component
+            if (!dc_->connect(buf_info.interface_prefix_ + "Rx.msg_OUTPORT", std::string("master_component.") + buf_info.master_component_port_name_, ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << buf_info.interface_prefix_ << RTT::endlog();
+                return false;
+            }
+        }
+        else {
+            // there is no Rx component, so create additional Concate component
+            if (!deployBufferConcateComponent(buf_info)) {
+                return false;
+            }
+
+            // connect Split-Concate ports
+            if (!dc_->connect(buf_info.interface_prefix_ + "Concate.msg_OUTPORT", buf_info.interface_prefix_ + "Split.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << buf_info.interface_prefix_ << RTT::endlog();
+                return false;
+            }
+
+            // connect Concate to master_component
+            if (!dc_->connect(buf_info.interface_prefix_ + "Concate.msg_OUTPORT", std::string("master_component.") + buf_info.master_component_port_name_, ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Concate-master_component: " << buf_info.interface_prefix_ << RTT::endlog();
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers) {
+    for (int i = 0; i < buffers.size(); ++i) {
+        const common_behavior::OutputBufferInfo& buf_info = buffers[i];
+        if (buf_info.enable_ipc_) {
+            if (!deployOutputBufferIpcComponent(buf_info)) {
+                return false;
+            }
+        }
+
+        if (!deployBufferConcateComponent(buf_info)) {
+            return false;
+        }
+
+        if (buf_info.enable_ipc_) {
+            if (!dc_->connect(buf_info.interface_prefix_ + "Concate.msg_OUTPORT", buf_info.interface_prefix_ + "Tx.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << buf_info.interface_prefix_ << RTT::endlog();
+                return false;
+            }
+        }
+        else {
+            // there is no Rx component, so create additional Split component
+            if (!deployBufferSplitComponent(buf_info)) {
+                return false;
+            }
+
+            // connect Split-Concate ports
+            if (!dc_->connect(buf_info.interface_prefix_ + "Concate.msg_OUTPORT", buf_info.interface_prefix_ + "Split.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << buf_info.interface_prefix_ << RTT::endlog();
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool SubsystemDeployer::setTriggerOnStart(RTT::TaskContext* tc, bool trigger) {
+    RTT::base::AttributeBase* base = tc->attributes()->getAttribute("TriggerOnStart");
+    if (!base) {
+        RTT::log(RTT::Error) << "component " << tc->getName() << " does not have attribute " << "TriggerOnStart" << RTT::endlog();
+        return false;
+    }
+    RTT::Attribute<bool>* triggerOnStart = static_cast<RTT::Attribute<bool>* >(base);
+    if (!triggerOnStart) {
+        RTT::log(RTT::Error) << "component " << tc->getName() << " does not have attribute " << "TriggerOnStart" << " of type bool" << RTT::endlog();
+        return false;
+    }
+    triggerOnStart->set(trigger);
+    return true;
+}
+
+bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_name) {
     Logger::In in("SubsystemDeployer::init");
 
     dc_.reset(new OCL::DeploymentComponent(name_));
@@ -130,14 +340,18 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_service_na
         return false;
     }
 
-    RTT::TaskContext* scheme = dc_->getPeer("scheme");
+    scheme_ = dc_->getPeer("scheme");
 
-    if (!scheme) {
+    if (!setTriggerOnStart(scheme_, false)) {
+        return false;
+    }
+
+    if (!scheme_) {
         Logger::log() << Logger::Error << "scheme in NULL" << Logger::endl;
         return false;
     }
     // scheme.loadService("conman_ros");    // TODO: check if this is needed
-    scheme->configure();
+    scheme_->configure();
 
     //
     // load master component
@@ -147,60 +361,48 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_service_na
         return false;
     }
 
-    RTT::TaskContext* master_component = dc_->getPeer("master_component");
+    master_component_ = dc_->getPeer("master_component");
 
-    if (!master_component) {
+    if (!setTriggerOnStart(master_component_, false)) {
+        return false;
+    }
+
+    if (!master_component_) {
         Logger::log() << Logger::Error << "master_component in NULL" << Logger::endl;
         return false;
     }
 
+//master_service_name = "velma_core_ve_body";
     // TODO: MasterService and its package are arguments
-    if (!import("velma_core_ve_body")) {                        // TODO: read this from command line or ROS param
+    if (!import(master_package_name)) {                        // TODO: read this from command line or ROS param
         return false;
     }
 
     //setActivity("master_component", 0, 6, ORO_SCHED_RT);
-    master_component->loadService("VelmaCoreVeBodyMaster");     // TODO: read this from command line or ROS param
+    master_component_->loadService(master_package_name + "_master");     // TODO: read this from command line or ROS param
 
-    master_component->addPeer(scheme);
+    master_component_->addPeer(scheme_);
 
-    if (!loadROSParam(master_component)) {
-        return false;
-    }
-
-/*    master_component->loadService("rosparam");
-
-    RTT::Service::shared_ptr master_component_rosparam = master_component->provides("rosparam");
-
-    RTT::OperationCaller<bool()> master_component_rosparam_getAll = master_component_rosparam->getOperation("getAll");
-    if (!master_component_rosparam_getAll.ready()) {
-        Logger::log() << Logger::Error << "could not get ROS parameter getAll operation for master_component" << Logger::endl;
-        return false;
-    }
-    if (!master_component_rosparam_getAll()) {
-        Logger::log() << Logger::Warning << "could not read ROS parameters for master_component" << Logger::endl;
-//        return false;     // TODO: this IS an error
-    }
-*/
-    // master component can be configured after all peers are added to scheme
-    //master_component->configure();    // TODO
+// TODO: this is not needes, as Master Component reads its parameters from Master Service
+//    if (!loadROSParam(master_component_)) {
+//        return false;
+//    }
 
     //
     // manage ports and ipc buffers
     //
-    std::vector<std::string > master_port_names = master_component->ports()->getPortNames();
+    std::vector<std::string > master_port_names = master_component_->ports()->getPortNames();
     for (int i = 0; i < master_port_names.size(); ++i) {
         Logger::log() << Logger::Info << "master_component port[" << i << "]: " << master_port_names[i] << Logger::endl;
     }
 
-
-
-    boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_ = master_component->getProvider<common_behavior::MasterServiceRequester >("master");
+    boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_ = master_component_->getProvider<common_behavior::MasterServiceRequester >("master");
     if (!master_service_) {
         RTT::log(RTT::Error) << "Unable to load common_behavior::MasterService from master_component" << RTT::endlog();
         return false;
     }
 
+    // inputs
     std::vector<common_behavior::InputBufferInfo > lowerInputBuffers;
     std::vector<common_behavior::InputBufferInfo > upperInputBuffers;
 
@@ -217,90 +419,42 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_service_na
         printInputBufferInfo(upperInputBuffers[i]);
     }
 
-    for (int i = 0; i < lowerInputBuffers.size(); ++i) {
-        const common_behavior::InputBufferInfo& buf_info = lowerInputBuffers[i];
-        if (buf_info.enable_ipc_) {
-            std::string type = buf_info.interface_prefix_ + "StatusRx";
-            std::string name = type + "_component";
-            if (!dc_->loadComponent(name, type)) {
-                RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
-                return false;
-            }
-            RTT::TaskContext* buffer_comp = dc_->getPeer(name);
-
-            if (!loadROSParam(buffer_comp)) {
-                return false;
-            }
-            RTT::Property<std::string>* channel_name = dynamic_cast<RTT::Property<std::string>* >(buffer_comp->properties()->getProperty("channel_name"));
-            if (!channel_name) {
-                RTT::log(RTT::Error) << "component " << buffer_comp->getName() << " does not have property channel_name" << RTT::endlog();
-                return false;
-            }
-
-            RTT::Property<bool>* event_port = dynamic_cast<RTT::Property<bool>* >(buffer_comp->properties()->getProperty("event_port"));
-            if (!event_port) {
-                RTT::log(RTT::Error) << "component " << buffer_comp->getName() << " does not have property event_port" << RTT::endlog();
-                return false;
-            }
-
-            RTT::Property<bool>* always_update_peers = dynamic_cast<RTT::Property<bool>* >(buffer_comp->properties()->getProperty("always_update_peers"));
-            if (!always_update_peers) {
-                RTT::log(RTT::Error) << "component " << buffer_comp->getName() << " does not have property always_update_peers" << RTT::endlog();
-                return false;
-            }
-
-            channel_name->set(buf_info.ipc_channel_name_);
-            event_port->set(buf_info.event_port_);
-            always_update_peers->set(buf_info.always_update_peers_);
-            //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
-            buffer_comp->configure();
-        }
-        // TODO: add concate/split
+    if (!createInputBuffers(lowerInputBuffers)) {
+        RTT::log(RTT::Error) << "Could not create lower input buffers" << RTT::endlog();
+        return false;
     }
 
-    for (int i = 0; i < upperInputBuffers.size(); ++i) {
-        const common_behavior::InputBufferInfo& buf_info = upperInputBuffers[i];
-        if (buf_info.enable_ipc_) {
-            std::string type = buf_info.interface_prefix_ + "CommandRx";
-            std::string name = type + "_component";
-            if (!dc_->loadComponent(name, type)) {
-                RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
-                return false;
-            }
-            RTT::TaskContext* buffer_comp = dc_->getPeer(name);
-
-            if (!loadROSParam(buffer_comp)) {
-                return false;
-            }
-            RTT::Property<std::string>* channel_name = dynamic_cast<RTT::Property<std::string>* >(buffer_comp->properties()->getProperty("channel_name"));
-            if (!channel_name) {
-                RTT::log(RTT::Error) << "component " << buffer_comp->getName() << " does not have property channel_name" << RTT::endlog();
-                return false;
-            }
-
-            RTT::Property<bool>* event_port = dynamic_cast<RTT::Property<bool>* >(buffer_comp->properties()->getProperty("event_port"));
-            if (!event_port) {
-                RTT::log(RTT::Error) << "component " << buffer_comp->getName() << " does not have property event_port" << RTT::endlog();
-                return false;
-            }
-
-            RTT::Property<bool>* always_update_peers = dynamic_cast<RTT::Property<bool>* >(buffer_comp->properties()->getProperty("always_update_peers"));
-            if (!always_update_peers) {
-                RTT::log(RTT::Error) << "component " << buffer_comp->getName() << " does not have property always_update_peers" << RTT::endlog();
-                return false;
-            }
-
-            channel_name->set(buf_info.ipc_channel_name_);
-            event_port->set(buf_info.event_port_);
-            always_update_peers->set(buf_info.always_update_peers_);
-            //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
-            buffer_comp->configure();
-        }
-        // TODO: add concate/split
+    if (!createInputBuffers(upperInputBuffers)) {
+        RTT::log(RTT::Error) << "Could not create upper input buffers" << RTT::endlog();
+        return false;
     }
 
+    // outputs
+    std::vector<common_behavior::OutputBufferInfo > lowerOutputBuffers;
+    std::vector<common_behavior::OutputBufferInfo > upperOutputBuffers;
 
-    // TODO
+    master_service_->getLowerOutputBuffers(lowerOutputBuffers);
+    master_service_->getUpperOutputBuffers(upperOutputBuffers);
+
+    Logger::log() << Logger::Info << "lowerOutputBuffers:" << Logger::endl;
+    for (int i = 0; i < lowerOutputBuffers.size(); ++i) {
+        printOutputBufferInfo(lowerOutputBuffers[i]);
+    }
+
+    Logger::log() << Logger::Info << "upperOutputBuffers:" << Logger::endl;
+    for (int i = 0; i < upperOutputBuffers.size(); ++i) {
+        printOutputBufferInfo(upperOutputBuffers[i]);
+    }
+
+    if (!createOutputBuffers(lowerOutputBuffers)) {
+        RTT::log(RTT::Error) << "Could not create lower output buffers" << RTT::endlog();
+        return false;
+    }
+
+    if (!createOutputBuffers(upperOutputBuffers)) {
+        RTT::log(RTT::Error) << "Could not create upper output buffers" << RTT::endlog();
+        return false;
+    }
 
 /*
 ros.import("rtt_velma_core_cs_ve_body_msgs");
@@ -320,13 +474,63 @@ ros.import("rtt_tf");
 ros.import("velma_sim_gazebo");
 */
 
+    core_peers_ = dc_->getPeerList();
 
+    RTT::log(RTT::Info) << "core components:" << RTT::endlog();
+    for (int i = 0; i < core_peers_.size(); ++i) {
+        RTT::log(RTT::Info) << "  " << core_peers_[i] << RTT::endlog();
+    }
 
     Logger::log() << Logger::Info << "OK" << Logger::endl;
 
-    // TODO: load master component and other generic stuff
-
     return true;
+}
+
+bool SubsystemDeployer::isCorePeer(const std::string& name) {
+    for (int i = 0; i < core_peers_.size(); ++i) {
+        if (name == core_peers_[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SubsystemDeployer::configure() {
+    std::vector< std::string > peer_names = dc_->getPeerList();
+
+    for (int i = 0; i < peer_names.size(); ++i) {
+        const std::string& name = peer_names[i];
+        if (!isCorePeer(name)) {
+            TaskContext* tc = dc_->getPeer(name);
+            if (!setTriggerOnStart(tc, false)) {
+                return false;
+            }
+
+            scheme_->addPeer(tc);
+
+            RTT::OperationCaller<bool(const std::string&)> scheme_addBlock = scheme_->getOperation("addBlock");
+            if (!scheme_addBlock.ready()) {
+                Logger::log() << Logger::Error << "Could not get addBlock operation of Conman scheme" << Logger::endl;
+                return false;
+            }
+
+            if (!scheme_addBlock(name)) {
+                Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << name << Logger::endl;
+                return true;
+            }
+        }
+    }
+/*
+TODO
+# set slave tasks execution order (before configure)
+core_cs_command_rx.pushBackPeerExecution("master_component");
+core_cs_command_rx.pushBackPeerExecution("scheme");
+core_cs_command_rx.configure();
+*/
+
+    // master component can be configured after all peers are added to scheme
+    master_component_->configure();
+
 }
 
 void SubsystemDeployer::runScripts(const std::vector<std::string>& scriptFiles) {

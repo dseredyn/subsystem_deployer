@@ -31,6 +31,8 @@
 #include <string>
 #include <boost/shared_ptr.hpp>
 #include <ocl/DeploymentComponent.hpp>
+#include "common_behavior/master_service_requester.h"
+#include "common_behavior/master_service.h"
 
 class SubsystemDeployer {
 public:
@@ -38,7 +40,7 @@ public:
 
     bool import(const std::string& name);
 
-    bool initializeSubsystem(const std::string& master_service_name);
+    bool initializeSubsystem(const std::string& master_package_name);
 
     void runScripts(const std::vector<std::string>& scriptFiles);
 
@@ -46,10 +48,28 @@ public:
 
     boost::shared_ptr<OCL::DeploymentComponent >& getDc();
 
+    bool configure();
+
 private:
+
+    bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
+    bool deployOutputBufferIpcComponent(const common_behavior::OutputBufferInfo& buf_info);
+    bool deployBufferSplitComponent(const common_behavior::BufferInfo& buf_info);
+    bool deployBufferConcateComponent(const common_behavior::BufferInfo& buf_info);
+    bool createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers);
+    bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
+
+    bool isCorePeer(const std::string& name);
+    bool setTriggerOnStart(RTT::TaskContext* tc, bool trigger);
+
+    RTT::TaskContext* scheme_;
+    RTT::TaskContext* master_component_;
+
     std::string name_;
     boost::shared_ptr<OCL::DeploymentComponent > dc_;
     RTT::OperationCaller<bool(const std::string&)> ros_import_;
+
+    std::vector<std::string > core_peers_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_

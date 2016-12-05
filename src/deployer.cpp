@@ -55,12 +55,34 @@ int main(int argc, char** argv)
 
     while(!found && optIndex<argc)
     {
+//        std::cout << "arg: \'" << argv[optIndex] << "\'" << std::endl;
         found = (0 == strcmp("--", argv[optIndex]));
         if(!found) optIndex++;
     }
 
     if (found) {
         argv[optIndex] = argv[0];
+    }
+
+    // extract script names from the command line
+    std::string master_package_name;
+    std::vector<std::string> scripts;
+    for (int i = 1; i < optIndex; ++i) {
+//        std::cout << "i: " << i << std::endl;
+//        std::cout << "arg2: \'" << argv[i] << "\'" << std::endl;
+
+        if (strcmp("-s", argv[i]) == 0) {
+            scripts.push_back(argv[i+1]);
+        }
+
+        if (strcmp("-m", argv[i]) == 0) {
+            master_package_name = argv[i+1];
+        }
+    }
+
+    if (master_package_name.empty()) {
+        std::cerr << "Master package name is missing. Usage argument: \'-m <master_package_name>\'" << std::endl;
+        return -1;
     }
 
     SubsystemDeployer depl(name);
@@ -70,9 +92,14 @@ int main(int argc, char** argv)
         RTT::Logger::log().mayLogStdOut(true);
         RTT::Logger::log().setLogLevel(RTT::Logger::Info);
 
-        depl.initializeSubsystem("TODO");
+        if (!depl.initializeSubsystem(master_package_name)) {
+            return -2;
+        }
 
-        depl.runScripts(std::vector<std::string>());    // TODO
+        depl.runScripts(scripts);
+
+        depl.configure();
+
         depl.runTaskBrowser();
 
         __os_exit();
@@ -80,3 +107,4 @@ int main(int argc, char** argv)
 
     return 0;
 }
+
