@@ -98,7 +98,9 @@ int main(int argc, char** argv)
 
         depl.runScripts(scripts);
 
-        depl.configure();
+        if (!depl.configure()) {
+            return -3;
+        }
 
         depl.runTaskBrowser();
 

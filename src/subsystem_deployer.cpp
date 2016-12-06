@@ -31,8 +31,10 @@
 #include <rtt/RTT.hpp>
 #include <rtt/Logger.hpp>
 #include <rtt/internal/GlobalService.hpp>
-
 #include <ocl/TaskBrowser.hpp>
+
+#include <rtt_roscomm/rtt_rostopic.h>
+
 #include <iostream>
 #include <string>
 #include <unistd.h>
@@ -122,15 +124,23 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
             return false;
         }
 
-        setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_);
-        setComponentProperty<bool >(comp, "event_port", buf_info.event_port_);
-        setComponentProperty<bool >(comp, "always_update_peers", buf_info.always_update_peers_);
-
-        //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
-        if (!comp->configure()) {
-            RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+        if (!setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_)) {
             return false;
         }
+        if (!setComponentProperty<bool >(comp, "event_port", buf_info.event_port_)) {
+            return false;
+        }
+        if (!setComponentProperty<bool >(comp, "always_update_peers", buf_info.always_update_peers_)) {
+            return false;
+        }
+
+        buffer_rx_components_.push_back(comp);
+
+        //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+//        if (!comp->configure()) {
+//            RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+//            return false;
+//        }
         return true;
     }
     RTT::log(RTT::Error) << "component " << type << " should not have IPC buffer" << RTT::endlog();
@@ -150,13 +160,17 @@ bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::Ou
             return false;
         }
 
-        setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_);
-
-        //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
-        if (!comp->configure()) {
-            RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+        if (!setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_)) {
             return false;
         }
+
+        buffer_tx_components_.push_back(comp);
+
+        //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+//        if (!comp->configure()) {
+//            RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+//            return false;
+//        }
         return true;
     }
     RTT::log(RTT::Error) << "component " << type << " should not have IPC buffer" << RTT::endlog();
@@ -172,14 +186,16 @@ bool SubsystemDeployer::deployBufferSplitComponent(const common_behavior::Buffer
     }
     RTT::TaskContext* comp = dc_->getPeer(name);
     if (!setTriggerOnStart(comp, false)) {
-            return false;
-        }
-
-    //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
-    if (!comp->configure()) {
-        RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
         return false;
     }
+
+    buffer_split_components_.push_back(comp);
+
+    //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+//    if (!comp->configure()) {
+//        RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+//        return false;
+//    }
     return true;
 }
 
@@ -192,14 +208,16 @@ bool SubsystemDeployer::deployBufferConcateComponent(const common_behavior::Buff
     }
     RTT::TaskContext* comp = dc_->getPeer(name);
     if (!setTriggerOnStart(comp, false)) {
-            return false;
-        }
-
-    //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
-    if (!comp->configure()) {
-        RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
         return false;
     }
+
+    buffer_concate_components_.push_back(comp);
+
+    //setActivity("core_ve_body_status_tx", 0, 6, ORO_SCHED_RT);    // TODO
+//    if (!comp->configure()) {
+//        RTT::log(RTT::Error) << "Unable to configure component " << name << RTT::endlog();
+//        return false;
+//    }
     return true;
 }
 
@@ -323,6 +341,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         !import("rtt_actionlib") ||
         !import("common_behavior") ||
         !import("conman") ||
+        !import("rtt_diagnostic_msgs") ||
 //        !import("conman_ros") ||
         !import("eigen_typekit"))
     {
@@ -396,7 +415,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         Logger::log() << Logger::Info << "master_component port[" << i << "]: " << master_port_names[i] << Logger::endl;
     }
 
-    boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_ = master_component_->getProvider<common_behavior::MasterServiceRequester >("master");
+    master_service_ = master_component_->getProvider<common_behavior::MasterServiceRequester >("master");
     if (!master_service_) {
         RTT::log(RTT::Error) << "Unable to load common_behavior::MasterService from master_component" << RTT::endlog();
         return false;
@@ -474,30 +493,229 @@ ros.import("rtt_tf");
 ros.import("velma_sim_gazebo");
 */
 
+    //
+    // diagnostics ROS interface
+    //
+    dc_->loadComponent("diag","DiagnosticComponent");
+    diag_component_ = dc_->getPeer("diag");
+    if (!diag_component_->setPeriod(0.01)) {
+        RTT::log(RTT::Error) << "could not change period of component \'" << diag_component_->getName() << RTT::endlog();
+        return false;
+    }
+
+//TODO:
+//    diag_component_.loadService("sim_clock_activity");
+
+    RTT::base::PortInterface* diag_port_out_ = diag_component_->ports()->getPort("diag_OUTPORT");
+    if (diag_port_out_) {
+        if (!diag_port_out_->createStream(rtt_roscomm::topic(std::string("/") + master_package_name + "/diag"))) {
+            RTT::log(RTT::Error) << "could not create ROS stream for port \'" << diag_component_->getName() << "." << diag_port_out_->getName() << "\'" << RTT::endlog();
+            return false;
+        }
+    }
+    else {
+        RTT::log(RTT::Error) << "component \'" << diag_component_->getName() << "\' does not have port \'diag_OUTPORT\'" << RTT::endlog();
+        return false;
+    }
+/*
+    // save a list of core components
     core_peers_ = dc_->getPeerList();
 
     RTT::log(RTT::Info) << "core components:" << RTT::endlog();
     for (int i = 0; i < core_peers_.size(); ++i) {
         RTT::log(RTT::Info) << "  " << core_peers_[i] << RTT::endlog();
     }
-
+*/
     Logger::log() << Logger::Info << "OK" << Logger::endl;
 
     return true;
 }
 
-bool SubsystemDeployer::isCorePeer(const std::string& name) {
-    for (int i = 0; i < core_peers_.size(); ++i) {
-        if (name == core_peers_[i]) {
-            return true;
+std::vector<RTT::TaskContext* > SubsystemDeployer::getAllComponents() const {
+    std::vector<RTT::TaskContext* > result;
+
+    std::vector< std::string > peer_names = dc_->getPeerList();
+    for (int i = 0; i < peer_names.size(); ++i) {
+        result.push_back(dc_->getPeer(peer_names[i]));
+    }
+
+    return result;
+}
+
+std::vector<RTT::TaskContext* > SubsystemDeployer::getCoreComponents() const {
+    std::vector<RTT::TaskContext* > result;
+    result.push_back(master_component_);
+    result.push_back(scheme_);
+    result.push_back(diag_component_);
+    result.insert(result.end(), buffer_rx_components_.begin(), buffer_rx_components_.end());
+    result.insert(result.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
+    result.insert(result.end(), buffer_split_components_.begin(), buffer_split_components_.end());
+    result.insert(result.end(), buffer_concate_components_.begin(), buffer_concate_components_.end());
+    return result;
+}
+
+std::vector<RTT::TaskContext* > SubsystemDeployer::getNonCoreComponents() const {
+    std::vector<RTT::TaskContext* > result;
+    std::vector<RTT::TaskContext* > core = getCoreComponents();
+    
+    std::vector< std::string > peer_names = dc_->getPeerList();
+
+    for (int i = 0; i < peer_names.size(); ++i) {
+        const std::string& name = peer_names[i];
+        bool is_core = false;
+        for (int j = 0; j < core.size(); ++j) {
+            if (core[j]->getName() == name) {
+                is_core = true;
+                break;
+            }
+        }
+        if (!is_core) {
+            TaskContext* tc = dc_->getPeer(name);
+            result.push_back(tc);
         }
     }
-    return false;
+    return result;
 }
 
 bool SubsystemDeployer::configure() {
-    std::vector< std::string > peer_names = dc_->getPeerList();
+    Logger::In in("SubsystemDeployer::configure");
 
+    // disable Trigger On Start for all components
+    const std::vector<RTT::TaskContext* > all_components = getAllComponents();
+    for (int i = 0; i < all_components.size(); ++i) {
+        setTriggerOnStart(all_components[i], false);
+    }
+
+    // initialize conman scheme
+    RTT::OperationCaller<bool(const std::string&)> scheme_addBlock = scheme_->getOperation("addBlock");
+    if (!scheme_addBlock.ready()) {
+        Logger::log() << Logger::Error << "Could not get addBlock operation of Conman scheme" << Logger::endl;
+        return false;
+    }
+    std::vector<RTT::TaskContext* > conman_peers = getNonCoreComponents();
+    conman_peers.insert(conman_peers.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
+    conman_peers.insert(conman_peers.end(), buffer_split_components_.begin(), buffer_split_components_.end());
+    conman_peers.insert(conman_peers.end(), buffer_concate_components_.begin(), buffer_concate_components_.end());
+    std::vector<bool > conman_peers_running(conman_peers.size(), false);
+    for (int i = 0; i < conman_peers.size(); ++i) {
+        if (conman_peers[i]->isRunning()) {
+            conman_peers[i]->stop();
+            conman_peers_running[i] = true;
+        }
+        scheme_->addPeer(conman_peers[i]);
+        if (!scheme_addBlock(conman_peers[i]->getName())) {
+            Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << conman_peers[i]->getName() << Logger::endl;
+            return true;
+        }
+    }
+
+    RTT::OperationCaller<int(std::vector<std::vector<std::string> >&) > scheme_getFlowCycles = scheme_->getOperation("getFlowCycles");
+    if (!scheme_getFlowCycles.ready()) {
+        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
+        return false;
+    }
+/*
+    std::vector<std::vector<std::string> > cycles;
+    scheme_getFlowCycles(cycles);
+
+    Logger::log() << Logger::Warning << "Cycles in scheme graph:" << Logger::endl;
+    for (int i = 0; i < cycles.size(); ++i) {
+        std::string cycle_str;
+        for (int j = 0; j < cycles[i].size(); ++j) {
+            cycle_str = cycle_str + (cycle_str.empty()?"":", ") + cycles[i][j];
+        }
+        Logger::log() << Logger::Warning << "  " << cycle_str << Logger::endl;
+    }
+*/
+    // break all cycles at inputs to non-core components
+//    RTT::OperationCaller<const std::vector<std::pair<std::string, std::string > >&() > master_component_getLatchedConnections = master_component_->getOperation("getLatchedConnections");
+//    if (!master_component_getLatchedConnections.ready()) {
+//        Logger::log() << Logger::Error << "Could not get getLatchedConnections operation of Master Component" << Logger::endl;
+//        return false;
+//    }
+
+    RTT::OperationCaller<bool(const std::string&, const std::string&, const bool) > scheme_latchConnections = scheme_->getOperation("latchConnections");
+    if (!scheme_latchConnections.ready()) {
+        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
+        return false;
+    }
+
+    const std::vector<std::pair<std::string, std::string > >& latched_connections = master_service_->getLatchedConnections();
+    for (int i = 0; i < latched_connections.size(); ++i) {
+        scheme_latchConnections(latched_connections[i].first, latched_connections[i].second, true);
+    }
+
+    const std::vector<RTT::TaskContext* > core_components = getCoreComponents();
+    const std::vector<RTT::TaskContext* > non_core_components = getNonCoreComponents();
+/*
+    for (int i = 0; i < cycles.size(); ++i) {
+        for (int j = 0; j < cycles[i].size(); ++j) {
+            int prev_j = (j + cycles[i].size() - 1) % cycles[i].size();
+            bool this_non_core = false;
+            for (int k = 0; k < non_core_components.size(); ++k) {
+                if (cycles[i][j] == non_core_components[k]->getName()) {
+                    this_non_core = true;
+                    break;
+                }
+            }
+            if (!this_non_core) {
+                continue;
+            }
+            bool prev_core = false;
+            for (int k = 0; k < core_components.size(); ++k) {
+                if (cycles[i][prev_j] == core_components[k]->getName()) {
+                    prev_core = true;
+                    break;
+                }
+            }
+            if (prev_core) {
+                Logger::log() << Logger::Info << "Latching connections: " << cycles[i][prev_j] << ", " << cycles[i][j] << Logger::endl;
+                scheme_latchConnections(cycles[i][prev_j], cycles[i][j], true);
+                break;
+            }
+        }
+    }*/
+
+/*    RTT::OperationCaller<bool(const std::string&, const std::string&, const bool) > scheme_latchConnections = scheme_->getOperation("latchConnections");
+    if (!scheme_latchConnections.ready()) {
+        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
+        return false;
+    }
+
+    const std::vector<RTT::TaskContext* > core_components = getCoreComponents();
+    const std::vector<RTT::TaskContext* > non_core_components = getNonCoreComponents();
+
+    for (int i = 0; i < cycles.size(); ++i) {
+        for (int j = 0; j < cycles[i].size(); ++j) {
+            int prev_j = (j + cycles[i].size() - 1) % cycles[i].size();
+            bool this_non_core = false;
+            for (int k = 0; k < non_core_components.size(); ++k) {
+                if (cycles[i][j] == non_core_components[k]->getName()) {
+                    this_non_core = true;
+                    break;
+                }
+            }
+            if (!this_non_core) {
+                continue;
+            }
+            bool prev_core = false;
+            for (int k = 0; k < core_components.size(); ++k) {
+                if (cycles[i][prev_j] == core_components[k]->getName()) {
+                    prev_core = true;
+                    break;
+                }
+            }
+            if (prev_core) {
+                Logger::log() << Logger::Info << "Latching connections: " << cycles[i][prev_j] << ", " << cycles[i][j] << Logger::endl;
+                scheme_latchConnections(cycles[i][prev_j], cycles[i][j], true);
+                break;
+            }
+        }
+    }
+*/
+
+/*
+//    std::vector< std::string > peer_names = dc_->getPeerList();
     for (int i = 0; i < peer_names.size(); ++i) {
         const std::string& name = peer_names[i];
         if (!isCorePeer(name)) {
@@ -520,6 +738,7 @@ bool SubsystemDeployer::configure() {
             }
         }
     }
+*/
 /*
 TODO
 # set slave tasks execution order (before configure)
@@ -528,9 +747,65 @@ core_cs_command_rx.pushBackPeerExecution("scheme");
 core_cs_command_rx.configure();
 */
 
-    // master component can be configured after all peers are added to scheme
-    master_component_->configure();
+    // add all peers to diagnostics component
+    for (int i = 0; i < all_components.size(); ++i) {
+        if (all_components[i]->getName() != diag_component_->getName()) {
+            diag_component_->addPeer(all_components[i]);
+        }
+    }
 
+    // configure unconfigured core peers
+    // master component can be configured after all peers are added to scheme
+    for (int i = 0; i < core_components.size(); ++i) {
+        if (!core_components[i]->isConfigured()) {
+            if (!core_components[i]->configure()) {
+                RTT::log(RTT::Error) << "Unable to configure component " << core_components[i]->getName() << RTT::endlog();
+                return false;
+            }
+        }
+    }
+
+    // configure other unconfigured peers
+    for (int i = 0; i < non_core_components.size(); ++i) {
+        if (!non_core_components[i]->isConfigured()) {
+            if (!non_core_components[i]->configure()) {
+                RTT::log(RTT::Error) << "Unable to configure component " << non_core_components[i]->getName() << RTT::endlog();
+                return false;
+            }
+        }
+    }
+
+    // start conman scheme first
+    if (!scheme_->start()) {
+        RTT::log(RTT::Error) << "Unable to start component: " << scheme_->getName() << RTT::endlog();
+        return false;
+    }
+
+    if (scheme_->getTaskState() != RTT::TaskContext::Running) {
+        RTT::log(RTT::Error) << "Component is not in the running state: " << scheme_->getName() << RTT::endlog();
+        return false;
+    }
+
+    // start other core peers
+    for (int i = 0; i < core_components.size(); ++i) {
+        if (!core_components[i]->isRunning()) {
+            if (!core_components[i]->start()) {
+                RTT::log(RTT::Error) << "Unable to start component " << core_components[i]->getName() << RTT::endlog();
+                return false;
+            }
+        }
+    }
+
+    // start non-core components that should always run
+    for (int i = 0; i < conman_peers.size(); ++i) {
+        if (conman_peers_running[i]) {
+            conman_peers[i]->start();
+        }
+    }
+
+    Logger::log() << Logger::Info << "OK" << Logger::endl;
+
+    return true;
 }
 
 void SubsystemDeployer::runScripts(const std::vector<std::string>& scriptFiles) {

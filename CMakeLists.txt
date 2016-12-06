@@ -4,7 +4,10 @@ project(subsystem_deployer)
 ### ROS Dependencies ###
 # Find the RTT-ROS package (this transitively includes the Orocos CMake macros)
 find_package(catkin REQUIRED COMPONENTS
-  kdl_conversions cmake_modules
+  rtt_roscomm
+  kdl_conversions
+  cmake_modules
+  common_services
   common_behavior
   )
 

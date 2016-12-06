@@ -59,17 +59,25 @@ private:
     bool createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers);
     bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
 
-    bool isCorePeer(const std::string& name);
+    std::vector<RTT::TaskContext* > getAllComponents() const;
+    std::vector<RTT::TaskContext* > getCoreComponents() const;
+    std::vector<RTT::TaskContext* > getNonCoreComponents() const;
+
     bool setTriggerOnStart(RTT::TaskContext* tc, bool trigger);
 
     RTT::TaskContext* scheme_;
     RTT::TaskContext* master_component_;
+    RTT::TaskContext* diag_component_;
 
     std::string name_;
     boost::shared_ptr<OCL::DeploymentComponent > dc_;
     RTT::OperationCaller<bool(const std::string&)> ros_import_;
+    boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_;
 
-    std::vector<std::string > core_peers_;
+    std::vector<RTT::TaskContext* > buffer_rx_components_;
+    std::vector<RTT::TaskContext* > buffer_tx_components_;
+    std::vector<RTT::TaskContext* > buffer_split_components_;
+    std::vector<RTT::TaskContext* > buffer_concate_components_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_
