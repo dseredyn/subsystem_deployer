@@ -7,7 +7,6 @@ find_package(catkin REQUIRED COMPONENTS
   rtt_roscomm
   kdl_conversions
   cmake_modules
-  common_services
   common_behavior
   )
 
