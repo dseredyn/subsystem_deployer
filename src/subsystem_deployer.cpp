@@ -768,6 +768,7 @@ core_cs_command_rx.configure();
     // configure other unconfigured peers
     for (int i = 0; i < non_core_components.size(); ++i) {
         if (!non_core_components[i]->isConfigured()) {
+            loadROSParam(non_core_components[i]);
             if (!non_core_components[i]->configure()) {
                 RTT::log(RTT::Error) << "Unable to configure component " << non_core_components[i]->getName() << RTT::endlog();
                 return false;
