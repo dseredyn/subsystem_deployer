@@ -609,12 +609,13 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+/*
     RTT::OperationCaller<int(std::vector<std::vector<std::string> >&) > scheme_getFlowCycles = scheme_->getOperation("getFlowCycles");
     if (!scheme_getFlowCycles.ready()) {
         Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
         return false;
     }
-/*
+
     std::vector<std::vector<std::string> > cycles;
     scheme_getFlowCycles(cycles);
 
