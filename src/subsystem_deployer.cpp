@@ -32,6 +32,7 @@
 #include <rtt/Logger.hpp>
 #include <rtt/internal/GlobalService.hpp>
 #include <ocl/TaskBrowser.hpp>
+#include <rtt/extras/SlaveActivity.hpp>
 
 #include <rtt_roscomm/rtt_rostopic.h>
 
@@ -289,7 +290,7 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
             }
         }
         else {
-            // there is no Rx component, so create additional Split component
+            // there is no Tx component, so create additional Split component
             if (!deployBufferSplitComponent(buf_info)) {
                 return false;
             }
@@ -336,7 +337,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
 
     if (!import("rtt_roscomm") ||
         !import("rtt_rosparam") ||
-//        !import("rtt_rosclock") ||
+        !import("rtt_rosclock") ||
         !import("rtt_rospack") ||
         !import("rtt_actionlib") ||
         !import("common_behavior") ||
@@ -400,7 +401,20 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     //setActivity("master_component", 0, 6, ORO_SCHED_RT);
     master_component_->loadService(master_package_name + "_master");     // TODO: read this from command line or ROS param
 
-    master_component_->addPeer(scheme_);
+
+
+    RTT::OperationCaller<bool(RTT::TaskContext*)> master_component_addConmanScheme = master_component_->getOperation("addConmanScheme");
+    if (!master_component_addConmanScheme.ready()) {
+        Logger::log() << Logger::Error << "Could not get addConmanScheme operation of Master Component" << Logger::endl;
+        return false;
+    }
+
+    if (!master_component_addConmanScheme(scheme_)) {
+        Logger::log() << Logger::Error << "Could not add Conman Scheme to Master Component" << Logger::endl;
+        return false;
+    }
+
+
 
 // TODO: this is not needes, as Master Component reads its parameters from Master Service
 //    if (!loadROSParam(master_component_)) {
@@ -740,13 +754,6 @@ bool SubsystemDeployer::configure() {
         }
     }
 */
-/*
-TODO
-# set slave tasks execution order (before configure)
-core_cs_command_rx.pushBackPeerExecution("master_component");
-core_cs_command_rx.pushBackPeerExecution("scheme");
-core_cs_command_rx.configure();
-*/
 
     // add all peers to diagnostics component
     for (int i = 0; i < all_components.size(); ++i) {
@@ -754,6 +761,9 @@ core_cs_command_rx.configure();
             diag_component_->addPeer(all_components[i]);
         }
     }
+
+    Logger::log() << Logger::Info << "[before master_component configure] scheme_->getActivity(): "
+        << (scheme_->getActivity()) << Logger::endl;
 
     // configure unconfigured core peers
     // master component can be configured after all peers are added to scheme
@@ -787,6 +797,85 @@ core_cs_command_rx.configure();
         RTT::log(RTT::Error) << "Component is not in the running state: " << scheme_->getName() << RTT::endlog();
         return false;
     }
+
+/*
+// TODO: remove
+    Logger::log() << Logger::Info << "scheme activity: "
+        << (scheme_->getActivity()->isActive()?"active":"not acitve") << Logger::endl;
+
+    Logger::log() << Logger::Info << "scheme_->getActivity(): "
+        << (scheme_->getActivity()) << Logger::endl;
+
+    Logger::log() << Logger::Info << "scheme_->getPeer(LWRlSim)->getActivity(): "
+        << (scheme_->getPeer("LWRlSim")->getActivity()) << Logger::endl;
+
+    Logger::log() << Logger::Info << "scheme_->getPeer(LWRlSim)->engine()->getActivity(): "
+        << (scheme_->getPeer("LWRlSim")->engine()->getActivity()) << Logger::endl;
+
+    Logger::log() << Logger::Info << "dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer(LWRlSim)->engine()->getActivity())->getMaster(): "
+        << (dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer("LWRlSim")->engine()->getActivity())->getMaster()) << Logger::endl;
+
+
+    dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer("LWRlSim")->engine()->getActivity())->getMaster()->isActive();
+    dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer("LWRlSim")->getActivity())->getMaster()->isActive();
+
+    std::vector<std::string > scheme_peers = scheme_->getPeerList();
+    for (int i = 0; i < scheme_peers.size(); ++i) {
+        RTT::TaskContext* tc = scheme_->getPeer(scheme_peers[i]);
+
+        if (tc->getActivity()) {
+            Logger::log() << Logger::Info << "task " << tc->getName() << " has activity: " << (tc->getActivity()->isActive()?"active":"not active") << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "task " << tc->getName() << " has no activity" << Logger::endl;
+        }
+
+        if(!tc->isRunning()) {
+            tc->start();
+        }
+
+        if (tc->engine() == NULL) {
+            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine is NULL" << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine is not NULL" << Logger::endl;
+        }
+        RTT::base::ActivityInterface* ai = tc->engine()->getActivity();
+        if (ai == NULL) {
+            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine activity is NULL" << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine activity is not NULL" << Logger::endl;
+        }
+
+        Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine activity: "
+            << (ai->isActive()?"active":"not acitve") << Logger::endl;
+
+        extras::SlaveActivity* sa = dynamic_cast<extras::SlaveActivity* >(ai);
+        if (sa == NULL) {
+            Logger::log() << Logger::Info << "slave activity is NULL" << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "slave activity is not NULL" << Logger::endl;
+        }
+
+        base::ActivityInterface* mmaster = sa->getMaster();
+        if (mmaster == NULL) {
+            Logger::log() << Logger::Info << "mmaster is NULL" << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "mmaster is not NULL" << Logger::endl;
+        }
+
+        Logger::log() << Logger::Info << "mmaster activity: "
+            << (mmaster->isActive()?"active":"not acitve") << Logger::endl;
+        
+        //tc->engine()->getActivity()->start();
+        
+        tc->engine()->stopTask(tc);
+        tc->stop();
+    }
+*/
 
     // start other core peers
     for (int i = 0; i < core_components.size(); ++i) {
