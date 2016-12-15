@@ -28,8 +28,6 @@ orocos_use_package( rtt-typekit )
 
 include_directories(${USE_OROCOS_INCLUDE_DIRS} include)
 
-find_package(orocos-ocl REQUIRED)
-
 orocos_use_package( ocl-taskbrowser )
 orocos_use_package( ocl-deployment )
 
