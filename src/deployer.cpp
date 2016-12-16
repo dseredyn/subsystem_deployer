@@ -38,6 +38,8 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include "ros/ros.h"
+
 using namespace RTT;
 using namespace std;
 
@@ -84,6 +86,8 @@ int main(int argc, char** argv)
         std::cerr << "Master package name is missing. Usage argument: \'-m <master_package_name>\'" << std::endl;
         return -1;
     }
+
+    ros::init(argc, argv, std::string("SubsystemDeployer_") + master_package_name);
 
     SubsystemDeployer depl(name);
 

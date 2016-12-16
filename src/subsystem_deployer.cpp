@@ -41,12 +41,72 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include "ros/ros.h"
+#include <subsystem_msgs/GetSubsystemInfo.h>
+
 using namespace RTT;
 using namespace std;
 
-SubsystemDeployer::SubsystemDeployer(const std::string& name) :
-    name_(name)
+class SubsystemDeployerRosService : public SubsystemDeployerRosServiceBase {
+public:
+    SubsystemDeployerRosService(const SubsystemDeployer& d)
+            : d_(d)
+            , ss_GetSubsystemInfo_( n_.advertiseService(d.getSubsystemName() + "/getSubsystemInfo", &SubsystemDeployerRosService::getSubsystemInfo, this) ) {
+    }
+
+    bool getSubsystemInfo(   subsystem_msgs::GetSubsystemInfo::Request  &req,
+                             subsystem_msgs::GetSubsystemInfo::Response &res) {
+        for (int i = 0; i < d_.getLowerInputBuffers().size(); ++i) {
+            res.lower_inputs.push_back(d_.getLowerInputBuffers()[i].interface_prefix_);
+            res.lower_inputs_ipc.push_back(d_.getLowerInputBuffers()[i].enable_ipc_);
+        }
+
+        for (int i = 0; i < d_.getUpperInputBuffers().size(); ++i) {
+            res.upper_inputs.push_back(d_.getUpperInputBuffers()[i].interface_prefix_);
+            res.upper_inputs_ipc.push_back(d_.getUpperInputBuffers()[i].enable_ipc_);
+        }
+
+        for (int i = 0; i < d_.getLowerOutputBuffers().size(); ++i) {
+            res.lower_outputs.push_back(d_.getLowerOutputBuffers()[i].interface_prefix_);
+            res.lower_outputs_ipc.push_back(d_.getLowerOutputBuffers()[i].enable_ipc_);
+        }
+
+        for (int i = 0; i < d_.getUpperOutputBuffers().size(); ++i) {
+            res.upper_outputs.push_back(d_.getUpperOutputBuffers()[i].interface_prefix_);
+            res.upper_outputs_ipc.push_back(d_.getUpperOutputBuffers()[i].enable_ipc_);
+        }
+        return true;
+    }
+
+private:
+    const SubsystemDeployer& d_;
+    ros::NodeHandle n_;
+    ros::ServiceServer ss_GetSubsystemInfo_;
+};
+
+SubsystemDeployer::SubsystemDeployer(const std::string& name)
+    : name_(name)
 {
+}
+
+const std::vector<common_behavior::InputBufferInfo >& SubsystemDeployer::getLowerInputBuffers() const {
+    return lowerInputBuffers_;
+}
+
+const std::vector<common_behavior::InputBufferInfo >& SubsystemDeployer::getUpperInputBuffers() const {
+    return upperInputBuffers_;
+}
+
+const std::vector<common_behavior::OutputBufferInfo >& SubsystemDeployer::getLowerOutputBuffers() const {
+    return lowerOutputBuffers_;
+}
+
+const std::vector<common_behavior::OutputBufferInfo >& SubsystemDeployer::getUpperOutputBuffers() const {
+    return upperOutputBuffers_;
+}
+
+const std::string& SubsystemDeployer::getSubsystemName() const {
+    return master_package_name_;
 }
 
 bool SubsystemDeployer::import(const std::string& name) {
@@ -66,7 +126,6 @@ bool SubsystemDeployer::import(const std::string& name) {
 static void printInputBufferInfo(const common_behavior::InputBufferInfo& info) {
     Logger::log()
         << " enable_ipc: " << (info.enable_ipc_?"true":"false")
-        << ", ipc_channel_name: \'" << info.ipc_channel_name_ << "\'"
         << ", event_port: " << (info.event_port_?"true":"false")
         << ", interface_prefix: \'" << info.interface_prefix_ << "\'"
         << Logger::endl;
@@ -75,7 +134,6 @@ static void printInputBufferInfo(const common_behavior::InputBufferInfo& info) {
 static void printOutputBufferInfo(const common_behavior::OutputBufferInfo& info) {
     Logger::log()
         << " enable_ipc: " << (info.enable_ipc_?"true":"false")
-        << ", ipc_channel_name: \'" << info.ipc_channel_name_ << "\'"
         << ", interface_prefix: \'" << info.interface_prefix_ << "\'"
         << Logger::endl;
 }
@@ -123,7 +181,7 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
             return false;
         }
 
-        if (!setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_)) {
+        if (!setComponentProperty<std::string >(comp, "channel_name", buf_info.interface_prefix_)) {
             return false;
         }
         if (!setComponentProperty<bool >(comp, "event_port", buf_info.event_port_)) {
@@ -151,7 +209,7 @@ bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::Ou
             return false;
         }
 
-        if (!setComponentProperty<std::string >(comp, "channel_name", buf_info.ipc_channel_name_)) {
+        if (!setComponentProperty<std::string >(comp, "channel_name", buf_info.interface_prefix_)) {
             return false;
         }
 
@@ -298,6 +356,10 @@ bool SubsystemDeployer::setTriggerOnStart(RTT::TaskContext* tc, bool trigger) {
 bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_name) {
     Logger::In in("SubsystemDeployer::init");
 
+    master_package_name_ = master_package_name;
+
+    ros_service.reset( new SubsystemDeployerRosService(*this) );
+
     dc_.reset(new OCL::DeploymentComponent(name_));
 
     dc_->import("rtt_ros");
@@ -403,55 +465,49 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     }
 
     // inputs
-    std::vector<common_behavior::InputBufferInfo > lowerInputBuffers;
-    std::vector<common_behavior::InputBufferInfo > upperInputBuffers;
-
-    master_service_->getLowerInputBuffers(lowerInputBuffers);
-    master_service_->getUpperInputBuffers(upperInputBuffers);
+    master_service_->getLowerInputBuffers(lowerInputBuffers_);
+    master_service_->getUpperInputBuffers(upperInputBuffers_);
 
     Logger::log() << Logger::Info << "lowerInputBuffers:" << Logger::endl;
-    for (int i = 0; i < lowerInputBuffers.size(); ++i) {
-        printInputBufferInfo(lowerInputBuffers[i]);
+    for (int i = 0; i < lowerInputBuffers_.size(); ++i) {
+        printInputBufferInfo(lowerInputBuffers_[i]);
     }
 
     Logger::log() << Logger::Info << "upperInputBuffers:" << Logger::endl;
-    for (int i = 0; i < upperInputBuffers.size(); ++i) {
-        printInputBufferInfo(upperInputBuffers[i]);
+    for (int i = 0; i < upperInputBuffers_.size(); ++i) {
+        printInputBufferInfo(upperInputBuffers_[i]);
     }
 
-    if (!createInputBuffers(lowerInputBuffers)) {
+    if (!createInputBuffers(lowerInputBuffers_)) {
         RTT::log(RTT::Error) << "Could not create lower input buffers" << RTT::endlog();
         return false;
     }
 
-    if (!createInputBuffers(upperInputBuffers)) {
+    if (!createInputBuffers(upperInputBuffers_)) {
         RTT::log(RTT::Error) << "Could not create upper input buffers" << RTT::endlog();
         return false;
     }
 
     // outputs
-    std::vector<common_behavior::OutputBufferInfo > lowerOutputBuffers;
-    std::vector<common_behavior::OutputBufferInfo > upperOutputBuffers;
-
-    master_service_->getLowerOutputBuffers(lowerOutputBuffers);
-    master_service_->getUpperOutputBuffers(upperOutputBuffers);
+    master_service_->getLowerOutputBuffers(lowerOutputBuffers_);
+    master_service_->getUpperOutputBuffers(upperOutputBuffers_);
 
     Logger::log() << Logger::Info << "lowerOutputBuffers:" << Logger::endl;
-    for (int i = 0; i < lowerOutputBuffers.size(); ++i) {
-        printOutputBufferInfo(lowerOutputBuffers[i]);
+    for (int i = 0; i < lowerOutputBuffers_.size(); ++i) {
+        printOutputBufferInfo(lowerOutputBuffers_[i]);
     }
 
     Logger::log() << Logger::Info << "upperOutputBuffers:" << Logger::endl;
-    for (int i = 0; i < upperOutputBuffers.size(); ++i) {
-        printOutputBufferInfo(upperOutputBuffers[i]);
+    for (int i = 0; i < upperOutputBuffers_.size(); ++i) {
+        printOutputBufferInfo(upperOutputBuffers_[i]);
     }
 
-    if (!createOutputBuffers(lowerOutputBuffers)) {
+    if (!createOutputBuffers(lowerOutputBuffers_)) {
         RTT::log(RTT::Error) << "Could not create lower output buffers" << RTT::endlog();
         return false;
     }
 
-    if (!createOutputBuffers(upperOutputBuffers)) {
+    if (!createOutputBuffers(upperOutputBuffers_)) {
         RTT::log(RTT::Error) << "Could not create upper output buffers" << RTT::endlog();
         return false;
     }

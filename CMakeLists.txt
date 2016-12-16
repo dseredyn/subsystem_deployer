@@ -8,6 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   kdl_conversions
   cmake_modules
   common_behavior
+  subsystem_msgs
   )
 
 find_package(OROCOS-RTT REQUIRED COMPONENTS rtt-scripting rtt-transport-corba)
@@ -47,7 +48,7 @@ target_link_libraries( deployer ${OROCOS-RTT_LIBRARIES} ${USE_OROCOS_LIBRARIES})
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES subsystem_deployer
-  CATKIN_DEPENDS common_behavior
+  CATKIN_DEPENDS common_behavior subsystem_msgs
 )
 
 

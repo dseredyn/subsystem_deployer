@@ -34,6 +34,8 @@
 #include "common_behavior/master_service_requester.h"
 #include "common_behavior/master_service.h"
 
+class SubsystemDeployerRosServiceBase {};
+
 class SubsystemDeployer {
 public:
     explicit SubsystemDeployer(const std::string& name);
@@ -49,6 +51,13 @@ public:
     boost::shared_ptr<OCL::DeploymentComponent >& getDc();
 
     bool configure();
+
+    const std::vector<common_behavior::InputBufferInfo >& getLowerInputBuffers() const;
+    const std::vector<common_behavior::InputBufferInfo >& getUpperInputBuffers() const;
+    const std::vector<common_behavior::OutputBufferInfo >& getLowerOutputBuffers() const;
+    const std::vector<common_behavior::OutputBufferInfo >& getUpperOutputBuffers() const;
+
+    const std::string& getSubsystemName() const;
 
 private:
 
@@ -70,6 +79,8 @@ private:
     RTT::TaskContext* diag_component_;
 
     std::string name_;
+    std::string master_package_name_;
+
     boost::shared_ptr<OCL::DeploymentComponent > dc_;
     RTT::OperationCaller<bool(const std::string&)> ros_import_;
     boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_;
@@ -78,6 +89,13 @@ private:
     std::vector<RTT::TaskContext* > buffer_tx_components_;
     std::vector<RTT::TaskContext* > buffer_split_components_;
     std::vector<RTT::TaskContext* > buffer_concate_components_;
+
+    std::vector<common_behavior::InputBufferInfo > lowerInputBuffers_;
+    std::vector<common_behavior::InputBufferInfo > upperInputBuffers_;
+    std::vector<common_behavior::OutputBufferInfo > lowerOutputBuffers_;
+    std::vector<common_behavior::OutputBufferInfo > upperOutputBuffers_;
+
+    boost::shared_ptr<SubsystemDeployerRosServiceBase > ros_service;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_
