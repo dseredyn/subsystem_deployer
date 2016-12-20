@@ -33,6 +33,7 @@
 #include <rtt/internal/GlobalService.hpp>
 #include <ocl/TaskBrowser.hpp>
 #include <rtt/extras/SlaveActivity.hpp>
+#include <rtt/base/ExecutableInterface.hpp>
 
 #include <rtt_roscomm/rtt_rostopic.h>
 
@@ -380,7 +381,6 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         !import("common_behavior") ||
         !import("conman") ||
         !import("rtt_diagnostic_msgs") ||
-//        !import("conman_ros") ||
         !import("eigen_typekit"))
     {
         Logger::log() << Logger::Error << "could not load some core dependencies" << Logger::endl;
@@ -429,15 +429,17 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         return false;
     }
 
-    // TODO: MasterService and its package are arguments
+    //
+    // load subsystem-specific master service
+    //
     if (!import(master_package_name)) {
         return false;
     }
 
-    //setActivity("master_component", 0, 6, ORO_SCHED_RT);
-    master_component_->loadService(master_package_name + "_master");
-
-
+    if (!master_component_->loadService(master_package_name + "_master")) {
+        Logger::log() << Logger::Error << "Could not load service \'" << master_package_name << "_master\'" << Logger::endl;
+        return false;
+    }
 
     RTT::OperationCaller<bool(RTT::TaskContext*)> master_component_addConmanScheme = master_component_->getOperation("addConmanScheme");
     if (!master_component_addConmanScheme.ready()) {
@@ -512,23 +514,23 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         return false;
     }
 
-/*
-ros.import("rtt_velma_core_cs_ve_body_msgs");
-ros.import("velma_core_cs_ve_body_interface");
-ros.import("velma_core_ve_body");
-ros.import("rtt_velma_core_ve_body_re_body_msgs");
-ros.import("velma_core_ve_body_re_body_interface");
-ros.import("rtt_std_msgs");
-ros.import("port_operations");
-ros.import("rtt_control_msgs");
-ros.import("lwr_fri");
-ros.import("controller_common");
-ros.import("velma_controller");
-ros.import("rtt_cartesian_trajectory_msgs");
-ros.import("rtt_std_msgs");
-ros.import("rtt_tf");
-ros.import("velma_sim_gazebo");
-*/
+    //
+    // load rtt_dot_service
+    //
+    if (!import("rtt_dot_service")) {
+        Logger::log() << Logger::Warning << "Could not load rtt_dot_service. Graph generation is disabled." << Logger::endl;
+    }
+    else if (!scheme_->loadService("dot")) {
+        Logger::log() << Logger::Warning << "Could not load rtt_dot_service \'dot\'. Graph generation is disabled." << Logger::endl;
+    }
+    else {
+        dot_graph_service_ = scheme_->provides("dot");
+        if (!dot_graph_service_) {
+            Logger::log() << Logger::Error << "Could not get loaded rtt_dot_service \'dot\'." << Logger::endl;
+            return false;
+        }
+        Logger::log() << Logger::Info << "Loaded rtt_dot_service \'dot\'. Graph generation is enabled." << Logger::endl;
+    }
 
     //
     // diagnostics ROS interface
@@ -712,70 +714,6 @@ bool SubsystemDeployer::configure() {
         }
     }*/
 
-/*    RTT::OperationCaller<bool(const std::string&, const std::string&, const bool) > scheme_latchConnections = scheme_->getOperation("latchConnections");
-    if (!scheme_latchConnections.ready()) {
-        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
-        return false;
-    }
-
-    const std::vector<RTT::TaskContext* > core_components = getCoreComponents();
-    const std::vector<RTT::TaskContext* > non_core_components = getNonCoreComponents();
-
-    for (int i = 0; i < cycles.size(); ++i) {
-        for (int j = 0; j < cycles[i].size(); ++j) {
-            int prev_j = (j + cycles[i].size() - 1) % cycles[i].size();
-            bool this_non_core = false;
-            for (int k = 0; k < non_core_components.size(); ++k) {
-                if (cycles[i][j] == non_core_components[k]->getName()) {
-                    this_non_core = true;
-                    break;
-                }
-            }
-            if (!this_non_core) {
-                continue;
-            }
-            bool prev_core = false;
-            for (int k = 0; k < core_components.size(); ++k) {
-                if (cycles[i][prev_j] == core_components[k]->getName()) {
-                    prev_core = true;
-                    break;
-                }
-            }
-            if (prev_core) {
-                Logger::log() << Logger::Info << "Latching connections: " << cycles[i][prev_j] << ", " << cycles[i][j] << Logger::endl;
-                scheme_latchConnections(cycles[i][prev_j], cycles[i][j], true);
-                break;
-            }
-        }
-    }
-*/
-
-/*
-//    std::vector< std::string > peer_names = dc_->getPeerList();
-    for (int i = 0; i < peer_names.size(); ++i) {
-        const std::string& name = peer_names[i];
-        if (!isCorePeer(name)) {
-            TaskContext* tc = dc_->getPeer(name);
-            if (!setTriggerOnStart(tc, false)) {
-                return false;
-            }
-
-            scheme_->addPeer(tc);
-
-            RTT::OperationCaller<bool(const std::string&)> scheme_addBlock = scheme_->getOperation("addBlock");
-            if (!scheme_addBlock.ready()) {
-                Logger::log() << Logger::Error << "Could not get addBlock operation of Conman scheme" << Logger::endl;
-                return false;
-            }
-
-            if (!scheme_addBlock(name)) {
-                Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << name << Logger::endl;
-                return true;
-            }
-        }
-    }
-*/
-
     // add all peers to diagnostics component
     for (int i = 0; i < all_components.size(); ++i) {
         if (all_components[i]->getName() != diag_component_->getName()) {
@@ -808,6 +746,32 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+    if (dot_graph_service_) {
+        RTT::Property<std::string >* dot_file = dynamic_cast<RTT::Property<std::string >* >(dot_graph_service_->getProperty("dot_file"));
+        if (!dot_file) {
+            RTT::log(RTT::Error) << "Could not get property \'dot_graph\' of rtt_dot_service" << RTT::endlog();
+            return false;
+        }
+        dot_file->set(std::string("/tmp/") + getSubsystemName() + ".dot");
+
+        RTT::OperationCaller<bool()> generate_graph = dot_graph_service_->getOperation("generate");
+        if (!generate_graph.ready()) {
+            RTT::log(RTT::Error) << "Could not get operation \'generate\' of rtt_dot_service" << RTT::endlog();
+            return false;
+        }
+
+        if (!generate_graph()) {
+            RTT::log(RTT::Error) << "Could not generate graph with rtt_dot_service.generate()" << RTT::endlog();
+            return false;
+        }
+
+//        boost::shared_ptr<RTT::base::ExecutableInterface > ex_ptr = boost::static_pointer_cast<RTT::base::ExecutableInterface >(dot_graph_service_);
+//        if (!ex_ptr) {
+//            RTT::log(RTT::Error) << "Could not cast rtt_dot_service to ExecutableInterface" << RTT::endlog();
+//            return false;
+//        }
+    }
+
     // start conman scheme first
     if (!scheme_->start()) {
         RTT::log(RTT::Error) << "Unable to start component: " << scheme_->getName() << RTT::endlog();
@@ -818,85 +782,6 @@ bool SubsystemDeployer::configure() {
         RTT::log(RTT::Error) << "Component is not in the running state: " << scheme_->getName() << RTT::endlog();
         return false;
     }
-
-/*
-// TODO: remove
-    Logger::log() << Logger::Info << "scheme activity: "
-        << (scheme_->getActivity()->isActive()?"active":"not acitve") << Logger::endl;
-
-    Logger::log() << Logger::Info << "scheme_->getActivity(): "
-        << (scheme_->getActivity()) << Logger::endl;
-
-    Logger::log() << Logger::Info << "scheme_->getPeer(LWRlSim)->getActivity(): "
-        << (scheme_->getPeer("LWRlSim")->getActivity()) << Logger::endl;
-
-    Logger::log() << Logger::Info << "scheme_->getPeer(LWRlSim)->engine()->getActivity(): "
-        << (scheme_->getPeer("LWRlSim")->engine()->getActivity()) << Logger::endl;
-
-    Logger::log() << Logger::Info << "dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer(LWRlSim)->engine()->getActivity())->getMaster(): "
-        << (dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer("LWRlSim")->engine()->getActivity())->getMaster()) << Logger::endl;
-
-
-    dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer("LWRlSim")->engine()->getActivity())->getMaster()->isActive();
-    dynamic_cast<extras::SlaveActivity* >(scheme_->getPeer("LWRlSim")->getActivity())->getMaster()->isActive();
-
-    std::vector<std::string > scheme_peers = scheme_->getPeerList();
-    for (int i = 0; i < scheme_peers.size(); ++i) {
-        RTT::TaskContext* tc = scheme_->getPeer(scheme_peers[i]);
-
-        if (tc->getActivity()) {
-            Logger::log() << Logger::Info << "task " << tc->getName() << " has activity: " << (tc->getActivity()->isActive()?"active":"not active") << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "task " << tc->getName() << " has no activity" << Logger::endl;
-        }
-
-        if(!tc->isRunning()) {
-            tc->start();
-        }
-
-        if (tc->engine() == NULL) {
-            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine is NULL" << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine is not NULL" << Logger::endl;
-        }
-        RTT::base::ActivityInterface* ai = tc->engine()->getActivity();
-        if (ai == NULL) {
-            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine activity is NULL" << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine activity is not NULL" << Logger::endl;
-        }
-
-        Logger::log() << Logger::Info << "task " << tc->getName() << " execution engine activity: "
-            << (ai->isActive()?"active":"not acitve") << Logger::endl;
-
-        extras::SlaveActivity* sa = dynamic_cast<extras::SlaveActivity* >(ai);
-        if (sa == NULL) {
-            Logger::log() << Logger::Info << "slave activity is NULL" << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "slave activity is not NULL" << Logger::endl;
-        }
-
-        base::ActivityInterface* mmaster = sa->getMaster();
-        if (mmaster == NULL) {
-            Logger::log() << Logger::Info << "mmaster is NULL" << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "mmaster is not NULL" << Logger::endl;
-        }
-
-        Logger::log() << Logger::Info << "mmaster activity: "
-            << (mmaster->isActive()?"active":"not acitve") << Logger::endl;
-        
-        //tc->engine()->getActivity()->start();
-        
-        tc->engine()->stopTask(tc);
-        tc->stop();
-    }
-*/
 
     // start other core peers
     for (int i = 0; i < core_components.size(); ++i) {

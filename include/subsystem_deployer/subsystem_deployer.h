@@ -96,6 +96,8 @@ private:
     std::vector<common_behavior::OutputBufferInfo > upperOutputBuffers_;
 
     boost::shared_ptr<SubsystemDeployerRosServiceBase > ros_service;
+
+    RTT::Service::shared_ptr dot_graph_service_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_
