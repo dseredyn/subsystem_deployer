@@ -800,6 +800,14 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+    RTT::Activity* master_activity = dynamic_cast<RTT::Activity* >(master_component_->getActivity());
+    if (!master_activity) {
+        Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT. Could not get Activity." << Logger::endl;
+    }
+    else if (!master_activity->setScheduler(ORO_SCHED_RT)) {
+        Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT." << Logger::endl;
+    }
+
     Logger::log() << Logger::Info << "OK" << Logger::endl;
 
     return true;
