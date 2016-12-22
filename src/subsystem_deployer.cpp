@@ -1,30 +1,33 @@
-/***************************************************************************
-  tag: Peter Soetens  Thu Jul 3 15:30:14 CEST 2008  deployer.cpp
-
-                        deployer.cpp -  description
-                           -------------------
-    begin                : Thu July 03 2008
-    copyright            : (C) 2008 Peter Soetens
-    email                : peter.soetens@fmtc.be
-
- ***************************************************************************
- *   This program is free software; you can redistribute it and/or         *
- *   modify it under the terms of the GNU Lesser General Public            *
- *   License as published by the Free Software Foundation; either          *
- *   version 2.1 of the License, or (at your option) any later version.    *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU     *
- *   Lesser General Public License for more details.                       *
- *                                                                         *
- *   You should have received a copy of the GNU Lesser General Public      *
- *   License along with this program; if not, write to the Free Software   *
- *   Foundation, Inc., 59 Temple Place,                                    *
- *   Suite 330, Boston, MA  02111-1307  USA                                *
- ***************************************************************************/
+/*
+ Copyright (c) 2014, Robot Control and Pattern Recognition Group, Warsaw University of Technology
+ All rights reserved.
+ 
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+     * Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+     * Neither the name of the Warsaw University of Technology nor the
+       names of its contributors may be used to endorse or promote products
+       derived from this software without specific prior written permission.
+ 
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ DISCLAIMED. IN NO EVENT SHALL <COPYright HOLDER> BE LIABLE FOR ANY
+ DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 
 #include "subsystem_deployer/subsystem_deployer.h"
+
+//#include "common_interfaces/message_concate.h"
 
 #include <rtt/rtt-config.h>
 #include <rtt/os/main.h>
@@ -771,6 +774,28 @@ bool SubsystemDeployer::configure() {
 //            return false;
 //        }
     }
+
+    //
+    // remove unused ports from msg concate/split components
+    //
+    for (int i = 0; i < core_components.size(); ++i) {
+        RTT::TaskContext* tc = core_components[i];
+
+        RTT::OperationInterfacePart *removeUnconnectedPortsOp;
+        if (tc->provides()->hasOperation("removeUnconnectedPorts") && (removeUnconnectedPortsOp = tc->provides()->getOperation("removeUnconnectedPorts")) != NULL) {
+            RTT::OperationCaller<bool()> removeUnconnectedPorts = RTT::OperationCaller<bool()>(removeUnconnectedPortsOp, tc->engine());
+            if (removeUnconnectedPorts.ready()) {
+                size_t before = tc->ports()->getPorts().size();
+                removeUnconnectedPorts();
+                size_t after = tc->ports()->getPorts().size();
+                RTT::log(RTT::Info) << "Removed unconnected ports of " << tc->getName() << ": reduced from " << before << " to " << after << RTT::endlog();
+            }
+            else {
+                RTT::log(RTT::Warning) << "Could not removeUnconnectedPorts() of " << tc->getName() << RTT::endlog();
+            }
+        }
+    }
+
 
     // start conman scheme first
     if (!scheme_->start()) {
