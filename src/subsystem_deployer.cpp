@@ -37,6 +37,7 @@
 #include <ocl/TaskBrowser.hpp>
 #include <rtt/extras/SlaveActivity.hpp>
 #include <rtt/base/ExecutableInterface.hpp>
+#include <rtt/plugin/PluginLoader.hpp>
 
 #include <rtt_roscomm/rtt_rostopic.h>
 
@@ -50,6 +51,25 @@
 
 using namespace RTT;
 using namespace std;
+
+// dummy component for rtt_dot_service
+class GraphComponent: public RTT::TaskContext {
+public:
+    explicit GraphComponent(const std::string &name)
+        : RTT::TaskContext(name, PreOperational) {
+    }
+
+    bool configureHook() {
+        return true;
+    }
+
+    bool startHook() {
+        return true;
+    }
+
+    void updateHook() {
+    }
+};
 
 class SubsystemDeployerRosService : public SubsystemDeployerRosServiceBase {
 public:
@@ -518,24 +538,6 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     }
 
     //
-    // load rtt_dot_service
-    //
-    if (!import("rtt_dot_service")) {
-        Logger::log() << Logger::Warning << "Could not load rtt_dot_service. Graph generation is disabled." << Logger::endl;
-    }
-    else if (!scheme_->loadService("dot")) {
-        Logger::log() << Logger::Warning << "Could not load rtt_dot_service \'dot\'. Graph generation is disabled." << Logger::endl;
-    }
-    else {
-        dot_graph_service_ = scheme_->provides("dot");
-        if (!dot_graph_service_) {
-            Logger::log() << Logger::Error << "Could not get loaded rtt_dot_service \'dot\'." << Logger::endl;
-            return false;
-        }
-        Logger::log() << Logger::Info << "Loaded rtt_dot_service \'dot\'. Graph generation is enabled." << Logger::endl;
-    }
-
-    //
     // diagnostics ROS interface
     //
     dc_->loadComponent("diag","DiagnosticComponent");
@@ -749,30 +751,63 @@ bool SubsystemDeployer::configure() {
         }
     }
 
-    if (dot_graph_service_) {
-        RTT::Property<std::string >* dot_file = dynamic_cast<RTT::Property<std::string >* >(dot_graph_service_->getProperty("dot_file"));
-        if (!dot_file) {
-            RTT::log(RTT::Error) << "Could not get property \'dot_graph\' of rtt_dot_service" << RTT::endlog();
-            return false;
-        }
-        dot_file->set(std::string("/tmp/") + getSubsystemName() + ".dot");
+    //
+    // load rtt_dot_service
+    //
+    {
+        boost::shared_ptr<GraphComponent > gc( new GraphComponent("graph_component"));
 
-        RTT::OperationCaller<bool()> generate_graph = dot_graph_service_->getOperation("generate");
-        if (!generate_graph.ready()) {
-            RTT::log(RTT::Error) << "Could not get operation \'generate\' of rtt_dot_service" << RTT::endlog();
-            return false;
+        for (int i = 0; i < all_components.size(); ++i) {
+            gc->addPeer( all_components[i] );
         }
 
-        if (!generate_graph()) {
-            RTT::log(RTT::Error) << "Could not generate graph with rtt_dot_service.generate()" << RTT::endlog();
-            return false;
+        if (!import("rtt_dot_service")) {
+            Logger::log() << Logger::Warning << "Could not load rtt_dot_service. Graph generation is disabled." << Logger::endl;
+        }
+        else if (!gc->loadService("dot")) {
+            Logger::log() << Logger::Warning << "Could not load rtt_dot_service \'dot\'. Graph generation is disabled." << Logger::endl;
+        }
+        else {
+            dot_graph_service_ = gc->provides("dot");
+            if (!dot_graph_service_) {
+                Logger::log() << Logger::Error << "Could not get loaded rtt_dot_service \'dot\'." << Logger::endl;
+                return false;
+            }
+            Logger::log() << Logger::Info << "Loaded rtt_dot_service \'dot\'. Graph generation is enabled." << Logger::endl;
         }
 
-//        boost::shared_ptr<RTT::base::ExecutableInterface > ex_ptr = boost::static_pointer_cast<RTT::base::ExecutableInterface >(dot_graph_service_);
-//        if (!ex_ptr) {
-//            RTT::log(RTT::Error) << "Could not cast rtt_dot_service to ExecutableInterface" << RTT::endlog();
-//            return false;
-//        }
+        if (dot_graph_service_) {
+            RTT::Property<std::string >* dot_file = dynamic_cast<RTT::Property<std::string >* >(dot_graph_service_->getProperty("dot_file"));
+            if (!dot_file) {
+                RTT::log(RTT::Error) << "Could not get property \'dot_graph\' of rtt_dot_service" << RTT::endlog();
+                return false;
+            }
+            dot_file->set(std::string("/tmp/") + getSubsystemName() + ".dot");
+
+            RTT::OperationCaller<bool()> generate_graph = dot_graph_service_->getOperation("generate");
+            if (!generate_graph.ready()) {
+                RTT::log(RTT::Error) << "Could not get operation \'generate\' of rtt_dot_service" << RTT::endlog();
+                return false;
+            }
+
+            if (!generate_graph()) {
+                RTT::log(RTT::Error) << "Could not generate graph with rtt_dot_service.generate()" << RTT::endlog();
+                return false;
+            }
+
+            if (gc->provides()->hasService("dot")) {
+                gc->provides()->removeService("dot");
+                if (gc->provides()->hasService("dot")) {
+                    RTT::log(RTT::Error) << "Could not remove dot service from master component." << RTT::endlog();
+                    return false;
+                }
+            }
+            else {
+                RTT::log(RTT::Error) << "Could not find dot service in master component." << RTT::endlog();
+                return false;
+            }
+            RTT::log(RTT::Info) << "Generated graph." << RTT::endlog();
+        }
     }
 
     //
