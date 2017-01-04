@@ -59,6 +59,8 @@ public:
 
     const std::string& getSubsystemName() const;
 
+    std::vector<RTT::TaskContext* > getAllComponents() const;
+
 private:
 
     bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
@@ -68,7 +70,6 @@ private:
     bool createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers);
     bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
 
-    std::vector<RTT::TaskContext* > getAllComponents() const;
     std::vector<RTT::TaskContext* > getCoreComponents() const;
     std::vector<RTT::TaskContext* > getNonCoreComponents() const;
 

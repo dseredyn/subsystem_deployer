@@ -99,6 +99,43 @@ public:
             res.upper_outputs.push_back(d_.getUpperOutputBuffers()[i].interface_prefix_);
             res.upper_outputs_ipc.push_back(d_.getUpperOutputBuffers()[i].enable_ipc_);
         }
+
+        std::vector<RTT::TaskContext* > components = d_.getAllComponents();
+
+        for (int i = 0; i < components.size(); ++i) {
+            RTT::TaskContext* tc = components[i];
+            subsystem_msgs::ComponentInfo cinf;
+            cinf.name = tc->getName();
+            std::vector<RTT::base::PortInterface* > ports = tc->ports()->getPorts();
+            for (int ip = 0; ip < ports.size(); ++ip) {
+                subsystem_msgs::PortInfo pinf;
+
+                pinf.name = ports[ip]->getName();
+
+                pinf.is_connected = ports[ip]->connected();
+
+                RTT::base::InputPortInterface* ipi;
+                RTT::base::OutputPortInterface* opi;
+                if (ipi = dynamic_cast<RTT::base::InputPortInterface* >(ports[ip])) {
+                    pinf.is_input = true;
+                }
+                else if (opi = dynamic_cast<RTT::base::OutputPortInterface* >(ports[ip])) {
+                    pinf.is_input = false;
+                }
+
+                const RTT::types::TypeInfo* ti = ports[ip]->getTypeInfo();
+                std::vector<std::string > type_names = ti->getTypeNames();
+                for (int itn = 0; itn < type_names.size(); ++itn) {
+                    pinf.type_names.push_back(type_names[itn]);
+                }
+
+                cinf.ports.push_back(pinf);
+            }
+            res.components.push_back(cinf);
+        }
+
+//TODO: BehaviorInfo[] behaviors
+
         return true;
     }
 
