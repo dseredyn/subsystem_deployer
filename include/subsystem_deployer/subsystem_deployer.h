@@ -42,9 +42,10 @@ public:
 
     bool import(const std::string& name);
 
-    bool initializeSubsystem(const std::string& master_package_name);
+    bool initializeSubsystem(const std::string& master_package_name, const std::string& subsystem_subname=std::string());
 
-    void runScripts(const std::vector<std::string>& scriptFiles);
+    bool runXmls(const std::vector<std::string>& xmlFiles);
+    bool runScripts(const std::vector<std::string>& scriptFiles);
 
     bool runTaskBrowser();
 
@@ -61,6 +62,8 @@ public:
 
     std::vector<RTT::TaskContext* > getAllComponents() const;
 
+    bool isInitialized() const;
+
 private:
 
     bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
@@ -69,6 +72,8 @@ private:
     bool deployBufferConcateComponent(const common_behavior::BufferInfo& buf_info);
     bool createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers);
     bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
+    bool isInputPort(const std::string &path) const;
+    bool isOutputPort(const std::string &path) const;
 
     std::vector<RTT::TaskContext* > getCoreComponents() const;
     std::vector<RTT::TaskContext* > getNonCoreComponents() const;
@@ -81,6 +86,9 @@ private:
 
     std::string name_;
     std::string master_package_name_;
+    std::string subname_;
+    std::string full_name_;
+
 
     boost::shared_ptr<OCL::DeploymentComponent > dc_;
     RTT::OperationCaller<bool(const std::string&)> ros_import_;
@@ -99,6 +107,14 @@ private:
     boost::shared_ptr<SubsystemDeployerRosServiceBase > ros_service;
 
     RTT::Service::shared_ptr dot_graph_service_;
+
+    std::set<std::string > components_initially_running_;
+    std::map<std::string, std::string > components_ros_action_;
+    std::list<std::pair<std::string, std::string> > connections_;
+    std::list<std::pair<std::string, std::string> > ros_streams_;
+    std::map<std::string, std::vector<std::string> > component_services_;
+
+    bool is_initialized_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_

@@ -68,7 +68,9 @@ int main(int argc, char** argv)
 
     // extract script names from the command line
     std::string master_package_name;
+    std::string subsystem_subname;
     std::vector<std::string> scripts;
+    std::vector<std::string> subsystem_xmls;
     for (int i = 1; i < optIndex; ++i) {
 //        std::cout << "i: " << i << std::endl;
 //        std::cout << "arg2: \'" << argv[i] << "\'" << std::endl;
@@ -77,8 +79,16 @@ int main(int argc, char** argv)
             scripts.push_back(argv[i+1]);
         }
 
+        if (strcmp("-x", argv[i]) == 0) {
+            subsystem_xmls.push_back(argv[i+1]);
+        }
+
         if (strcmp("-m", argv[i]) == 0) {
             master_package_name = argv[i+1];
+        }
+
+        if (strcmp("-n", argv[i]) == 0) {
+            subsystem_subname = argv[i+1];
         }
     }
 
@@ -87,7 +97,7 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    ros::init(argc, argv, std::string("SubsystemDeployer_") + master_package_name);
+    ros::init(argc, argv, std::string("SubsystemDeployer_") + master_package_name + subsystem_subname);
 
     SubsystemDeployer depl(name);
 
@@ -96,14 +106,20 @@ int main(int argc, char** argv)
         RTT::Logger::log().mayLogStdOut(true);
         RTT::Logger::log().setLogLevel(RTT::Logger::Info);
 
-        if (!depl.initializeSubsystem(master_package_name)) {
+        if (!depl.initializeSubsystem(master_package_name, subsystem_subname)) {
             return -2;
         }
 
-        depl.runScripts(scripts);
+        if (!depl.runXmls(subsystem_xmls)) {
+            return -3;
+        }
+
+        if (!depl.runScripts(scripts)) {
+            return -4;
+        }
 
         if (!depl.configure()) {
-            return -3;
+            return -5;
         }
 
         depl.runTaskBrowser();

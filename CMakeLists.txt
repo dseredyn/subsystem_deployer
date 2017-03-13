@@ -11,6 +11,8 @@ find_package(catkin REQUIRED COMPONENTS
   subsystem_msgs
   )
 
+find_package(TinyXML REQUIRED)
+
 find_package(OROCOS-RTT REQUIRED COMPONENTS rtt-scripting rtt-transport-corba)
 include(${OROCOS-RTT_USE_FILE_PATH}/UseOROCOS-RTT.cmake )
 
@@ -37,10 +39,10 @@ include_directories(${orocos-ocl_INCLUDE_DIRS})
 
 add_library(subsystem_deployer src/subsystem_deployer.cpp)
 #set_target_properties(subsystem_deployer PROPERTIES COMPILE_FLAGS -DRTT_STATIC)
-target_link_libraries( subsystem_deployer ${OROCOS-RTT_LIBRARIES} ${USE_OROCOS_LIBRARIES})
+target_link_libraries( subsystem_deployer ${OROCOS-RTT_LIBRARIES} ${USE_OROCOS_LIBRARIES} ${TinyXML_LIBRARIES})
 
 add_executable( deployer src/deployer.cpp src/subsystem_deployer.cpp )
-target_link_libraries( deployer ${OROCOS-RTT_LIBRARIES} ${USE_OROCOS_LIBRARIES})
+target_link_libraries( deployer ${OROCOS-RTT_LIBRARIES} ${USE_OROCOS_LIBRARIES} ${TinyXML_LIBRARIES})
 
 ### Orocos Package Exports and Install Targets ###
 
