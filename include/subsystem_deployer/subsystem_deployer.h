@@ -58,6 +58,8 @@ public:
     const std::vector<common_behavior::OutputBufferInfo >& getLowerOutputBuffers() const;
     const std::vector<common_behavior::OutputBufferInfo >& getUpperOutputBuffers() const;
 
+    const std::string& getChannelName(const std::string& alias) const;
+
     const std::string& getSubsystemName() const;
 
     std::vector<RTT::TaskContext* > getAllComponents() const;
@@ -74,6 +76,8 @@ private:
     bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
     bool isInputPort(const std::string &path) const;
     bool isOutputPort(const std::string &path) const;
+
+    bool setChannelsNames();
 
     std::vector<RTT::TaskContext* > getCoreComponents() const;
     std::vector<RTT::TaskContext* > getNonCoreComponents() const;
@@ -111,6 +115,7 @@ private:
     std::set<std::string > components_initially_running_;
     std::map<std::string, std::string > components_ros_action_;
     std::list<std::pair<std::string, std::string> > connections_;
+    std::map<std::string, std::string > io_buffers_;
     std::list<std::pair<std::string, std::string> > ros_streams_;
     std::map<std::string, std::vector<std::string> > component_services_;
 

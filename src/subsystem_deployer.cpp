@@ -85,22 +85,22 @@ public:
 		res.is_initialized = d_.isInitialized();
 
         for (int i = 0; i < d_.getLowerInputBuffers().size(); ++i) {
-            res.lower_inputs.push_back(d_.getLowerInputBuffers()[i].getChannelName());
+            res.lower_inputs.push_back(d_.getChannelName(d_.getLowerInputBuffers()[i].interface_alias_));
             res.lower_inputs_ipc.push_back(d_.getLowerInputBuffers()[i].enable_ipc_);
         }
 
         for (int i = 0; i < d_.getUpperInputBuffers().size(); ++i) {
-            res.upper_inputs.push_back(d_.getUpperInputBuffers()[i].getChannelName());
+            res.upper_inputs.push_back(d_.getChannelName(d_.getUpperInputBuffers()[i].interface_alias_));
             res.upper_inputs_ipc.push_back(d_.getUpperInputBuffers()[i].enable_ipc_);
         }
 
         for (int i = 0; i < d_.getLowerOutputBuffers().size(); ++i) {
-            res.lower_outputs.push_back(d_.getLowerOutputBuffers()[i].getChannelName());
+            res.lower_outputs.push_back(d_.getChannelName(d_.getLowerOutputBuffers()[i].interface_alias_));
             res.lower_outputs_ipc.push_back(d_.getLowerOutputBuffers()[i].enable_ipc_);
         }
 
         for (int i = 0; i < d_.getUpperOutputBuffers().size(); ++i) {
-            res.upper_outputs.push_back(d_.getUpperOutputBuffers()[i].getChannelName());
+            res.upper_outputs.push_back(d_.getChannelName(d_.getUpperOutputBuffers()[i].interface_alias_));
             res.upper_outputs_ipc.push_back(d_.getUpperOutputBuffers()[i].enable_ipc_);
         }
 
@@ -159,6 +159,15 @@ bool SubsystemDeployer::isInitialized() const {
 	return is_initialized_;
 }
 
+const std::string& SubsystemDeployer::getChannelName(const std::string& alias) const {
+    static const std::string empty = std::string();
+    std::map<std::string, std::string >::const_iterator it = io_buffers_.find(alias);
+    if (it == io_buffers_.end()) {
+        return empty;
+    }
+    return it->second;
+}
+
 const std::vector<common_behavior::InputBufferInfo >& SubsystemDeployer::getLowerInputBuffers() const {
     return lowerInputBuffers_;
 }
@@ -197,14 +206,14 @@ static void printInputBufferInfo(const common_behavior::InputBufferInfo& info) {
     Logger::log()
         << " enable_ipc: " << (info.enable_ipc_?"true":"false")
 //        << ", event_port: " << (info.event_port_?"true":"false")
-        << ", interface_prefix: \'" << info.getChannelName() << "\'"
+        << ", interface_alias: \'" << info.interface_alias_ << "\'"
         << Logger::endl;
 }
 
 static void printOutputBufferInfo(const common_behavior::OutputBufferInfo& info) {
     Logger::log()
         << " enable_ipc: " << (info.enable_ipc_?"true":"false")
-        << ", interface_prefix: \'" << info.getChannelName() << "\'"
+        << ", interface_alias: \'" << info.interface_alias_ << "\'"
         << Logger::endl;
 }
 
@@ -238,11 +247,45 @@ static bool setComponentProperty(RTT::TaskContext *tc, const std::string& prop_n
     return true;
 }
 
+bool SubsystemDeployer::setChannelsNames() {
+    for (int i = 0; i < buffer_rx_components_.size(); ++i) {
+        RTT::TaskContext* comp = buffer_rx_components_[i];
+        std::string name = comp->getName();
+        name = name.substr(0, name.size()-2);
+
+        const std::string& ch_name = getChannelName(name);
+        if (ch_name.empty()) {
+            RTT::log(RTT::Error) << "Could not get name for i/o buffer \'" << name << "\'" << RTT::endlog();
+            return false;
+        }
+
+        if (!setComponentProperty<std::string >(comp, "channel_name", ch_name)) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < buffer_tx_components_.size(); ++i) {
+        RTT::TaskContext* comp = buffer_tx_components_[i];
+        std::string name = comp->getName();
+        name = name.substr(0, name.size()-2);
+
+        const std::string& ch_name = getChannelName(name);
+        if (ch_name.empty()) {
+            RTT::log(RTT::Error) << "Could not get name for i/o buffer \'" << name << "\'" << RTT::endlog();
+            return false;
+        }
+
+        if (!setComponentProperty<std::string >(comp, "channel_name", ch_name)) {
+            return false;
+        }
+    }
+}
+
 bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info) {
     std::string suffix = "Rx";
     std::string type = buf_info.interface_type_ + suffix;
-    std::string ch_name = buf_info.getChannelName();
-    std::string name = ch_name + suffix;
+
+    std::string name = buf_info.interface_alias_ + suffix;
 
     if (buf_info.enable_ipc_) {
         if (!dc_->loadComponent(name, type)) {
@@ -251,9 +294,6 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
         }
         RTT::TaskContext* comp = dc_->getPeer(name);
         if (!setTriggerOnStart(comp, true)) {
-            return false;
-        }
-        if (!setComponentProperty<std::string >(comp, "channel_name", ch_name)) {
             return false;
         }
 
@@ -281,8 +321,8 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
 bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::OutputBufferInfo& buf_info) {
     std::string suffix = "Tx";
     std::string type = buf_info.interface_type_ + suffix;
-    std::string ch_name = buf_info.getChannelName();
-    std::string name = ch_name + suffix;
+
+    std::string name = buf_info.interface_alias_ + suffix;
 
     if (buf_info.enable_ipc_) {
         if (!dc_->loadComponent(name, type)) {
@@ -291,10 +331,6 @@ bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::Ou
         }
         RTT::TaskContext* comp = dc_->getPeer(name);
         if (!setTriggerOnStart(comp, false)) {
-            return false;
-        }
-
-        if (!setComponentProperty<std::string >(comp, "channel_name", ch_name)) {
             return false;
         }
 
@@ -309,8 +345,8 @@ bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::Ou
 bool SubsystemDeployer::deployBufferSplitComponent(const common_behavior::BufferInfo& buf_info) {
     std::string suffix = "Split";
     std::string type = buf_info.interface_type_ + suffix;
-    std::string ch_name = buf_info.getChannelName();
-    std::string name = ch_name + suffix;
+
+    std::string name = buf_info.interface_alias_ + suffix;
 
     if (!dc_->loadComponent(name, type)) {
         RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
@@ -329,8 +365,8 @@ bool SubsystemDeployer::deployBufferSplitComponent(const common_behavior::Buffer
 bool SubsystemDeployer::deployBufferConcateComponent(const common_behavior::BufferInfo& buf_info) {
     std::string suffix = "Concate";
     std::string type = buf_info.interface_type_ + suffix;
-    std::string ch_name = buf_info.getChannelName();
-    std::string name = ch_name + suffix;
+
+    std::string name = buf_info.interface_alias_ + suffix;
 
     if (!dc_->loadComponent(name, type)) {
         RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
@@ -359,23 +395,25 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
             return false;
         }
 
+        const std::string alias = buf_info.interface_alias_;
+
         if (buf_info.enable_ipc_) {
             // connect Split-Rx ports
-            if (!dc_->connect(std::string("master_component.") + buf_info.getChannelName() + "_OUTPORT", buf_info.getChannelName() + "Split.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << buf_info.getChannelName() << RTT::endlog();
+            if (!dc_->connect(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << alias << RTT::endlog();
                 return false;
             }
 
             // connect Rx to master_component
-            if (!dc_->connect(buf_info.getChannelName() + "Rx.msg_OUTPORT", std::string("master_component.") + buf_info.getChannelName() + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
-                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << buf_info.getChannelName() << RTT::endlog();
+            if (!dc_->connect(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
+                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
                 return false;
             }
 
             if (buf_info.event_) {
                 // connect Rx no_data to master_component
-                if (!dc_->connect(buf_info.getChannelName() + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
-                    RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << buf_info.getChannelName() << RTT::endlog();
+                if (!dc_->connect(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
+                    RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
                     return false;
                 }
             }
@@ -387,14 +425,14 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
             }
 
             // connect Split-Concate ports
-            if (!dc_->connect(buf_info.getChannelName() + "Concate.msg_OUTPORT", buf_info.getChannelName() + "Split.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << buf_info.getChannelName() << RTT::endlog();
+            if (!dc_->connect(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << alias << RTT::endlog();
                 return false;
             }
 
             // connect Concate to master_component
-            if (!dc_->connect(buf_info.getChannelName() + "Concate.msg_OUTPORT", std::string("master_component.") + buf_info.getChannelName() + "_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Concate-master_component: " << buf_info.getChannelName() << RTT::endlog();
+            if (!dc_->connect(alias + "Concate.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Concate-master_component: " << alias << RTT::endlog();
                 return false;
             }
         }
@@ -415,9 +453,11 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
             return false;
         }
 
+        const std::string alias = buf_info.interface_alias_;
+
         if (buf_info.enable_ipc_) {
-            if (!dc_->connect(buf_info.getChannelName() + "Concate.msg_OUTPORT", buf_info.getChannelName() + "Tx.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << buf_info.getChannelName() << RTT::endlog();
+            if (!dc_->connect(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
                 return false;
             }
         }
@@ -428,8 +468,8 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
             }
 
             // connect Split-Concate ports
-            if (!dc_->connect(buf_info.getChannelName() + "Concate.msg_OUTPORT", buf_info.getChannelName() + "Split.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << buf_info.getChannelName() << RTT::endlog();
+            if (!dc_->connect(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << alias << RTT::endlog();
                 return false;
             }
         }
@@ -453,11 +493,12 @@ bool SubsystemDeployer::setTriggerOnStart(RTT::TaskContext* tc, bool trigger) {
 }
 
 bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_name, const std::string& subsystem_subname) {
-    Logger::In in("SubsystemDeployer::init");
 
     master_package_name_ = master_package_name;
-	subname_ = subsystem_subname;
+    subname_ = subsystem_subname;
     full_name_ = master_package_name_ + subname_;
+
+    Logger::In in("SubsystemDeployer::init " + getSubsystemName());
 
     ros_service.reset( new SubsystemDeployerRosService(*this) );
 
@@ -528,13 +569,6 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     if (!setTriggerOnStart(master_component_, false)) {
         return false;
     }
-
-    RTT::Property<std::string >* master_subsystem_subname = dynamic_cast<RTT::Property<std::string >* >(master_component_->getProperty("subsystem_subname"));
-    if (!master_subsystem_subname) {
-        RTT::log(RTT::Error) << "Could not get property \'subsystem_subname\' of master_component" << RTT::endlog();
-        return false;
-    }
-    master_subsystem_subname->set(subsystem_subname);
 
     //
     // load subsystem-specific master service
@@ -740,7 +774,12 @@ bool SubsystemDeployer::isOutputPort(const std::string &path) const {
 }
 
 bool SubsystemDeployer::configure() {
-    Logger::In in("SubsystemDeployer::configure");
+    Logger::In in("SubsystemDeployer::configure " + getSubsystemName());
+
+    if (!setChannelsNames()) {
+        Logger::log() << Logger::Error << "Could not set names for some i/o buffers" << Logger::endl;
+        return false;
+    }
 
     // disable Trigger On Start for all components
     const std::vector<RTT::TaskContext* > all_components = getAllComponents();
@@ -748,39 +787,6 @@ bool SubsystemDeployer::configure() {
         setTriggerOnStart(all_components[i], false);
     }
 
-    // initialize conman scheme
-    RTT::OperationCaller<bool(const std::string&)> scheme_addBlock = scheme_->getOperation("addBlock");
-    if (!scheme_addBlock.ready()) {
-        Logger::log() << Logger::Error << "Could not get addBlock operation of Conman scheme" << Logger::endl;
-        return false;
-    }
-    std::vector<RTT::TaskContext* > conman_peers = getNonCoreComponents();
-    conman_peers.insert(conman_peers.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
-    conman_peers.insert(conman_peers.end(), buffer_split_components_.begin(), buffer_split_components_.end());
-    conman_peers.insert(conman_peers.end(), buffer_concate_components_.begin(), buffer_concate_components_.end());
-    std::vector<bool > conman_peers_running(conman_peers.size(), false);
-    for (int i = 0; i < conman_peers.size(); ++i) {
-        if (conman_peers[i]->isRunning()) {
-            conman_peers[i]->stop();
-            conman_peers_running[i] = true;
-        }
-        scheme_->addPeer(conman_peers[i]);
-        if (!scheme_addBlock(conman_peers[i]->getName())) {
-            Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << conman_peers[i]->getName() << Logger::endl;
-            return true;
-        }
-    }
-
-    RTT::OperationCaller<bool(const std::string&, const std::string&, const bool) > scheme_latchConnections = scheme_->getOperation("latchConnections");
-    if (!scheme_latchConnections.ready()) {
-        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
-        return false;
-    }
-
-    const std::vector<std::pair<std::string, std::string > >& latched_connections = master_service_->getLatchedConnections();
-    for (int i = 0; i < latched_connections.size(); ++i) {
-        scheme_latchConnections(latched_connections[i].first, latched_connections[i].second, true);
-    }
 
     const std::vector<RTT::TaskContext* > core_components = getCoreComponents();
     const std::vector<RTT::TaskContext* > non_core_components = getNonCoreComponents();
@@ -798,6 +804,9 @@ bool SubsystemDeployer::configure() {
     // configure unconfigured core peers
     // master component can be configured after all peers are added to scheme
     for (int i = 0; i < core_components.size(); ++i) {
+        if (core_components[i] == master_component_) {
+            continue;
+        }
         if (!core_components[i]->isConfigured()) {
             if (!core_components[i]->configure()) {
                 RTT::log(RTT::Error) << "Unable to configure component " << core_components[i]->getName() << RTT::endlog();
@@ -838,6 +847,9 @@ bool SubsystemDeployer::configure() {
 
     // configure other unconfigured peers
     for (int i = 0; i < non_core_components.size(); ++i) {
+        if (non_core_components[i] == master_component_) {
+            continue;
+        }
         loadROSParam(non_core_components[i]);
         if (!non_core_components[i]->isConfigured()) {
             RTT::log(RTT::Info) << "loading ROS parameters for \'" << non_core_components[i]->getName() << "\'" << RTT::endlog();
@@ -877,6 +889,48 @@ bool SubsystemDeployer::configure() {
             return false;
         }
     }
+
+    // initialize conman scheme
+    RTT::OperationCaller<bool(const std::string&)> scheme_addBlock = scheme_->getOperation("addBlock");
+    if (!scheme_addBlock.ready()) {
+        Logger::log() << Logger::Error << "Could not get addBlock operation of Conman scheme" << Logger::endl;
+        return false;
+    }
+    std::vector<RTT::TaskContext* > conman_peers = getNonCoreComponents();
+    conman_peers.insert(conman_peers.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
+    conman_peers.insert(conman_peers.end(), buffer_split_components_.begin(), buffer_split_components_.end());
+    conman_peers.insert(conman_peers.end(), buffer_concate_components_.begin(), buffer_concate_components_.end());
+    std::vector<bool > conman_peers_running(conman_peers.size(), false);
+    for (int i = 0; i < conman_peers.size(); ++i) {
+        if (conman_peers[i]->isRunning()) {
+            conman_peers[i]->stop();
+            conman_peers_running[i] = true;
+        }
+        scheme_->addPeer(conman_peers[i]);
+        if (!scheme_addBlock(conman_peers[i]->getName())) {
+            Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << conman_peers[i]->getName() << Logger::endl;
+            return true;
+        }
+    }
+
+    //
+    // latch connections
+    //
+    RTT::OperationCaller<bool(const std::string&, const std::string&, const bool) > scheme_latchConnections = scheme_->getOperation("latchConnections");
+    if (!scheme_latchConnections.ready()) {
+        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
+        return false;
+    }
+
+    const std::vector<std::pair<std::string, std::string > >& latched_connections = master_service_->getLatchedConnections();
+    for (int i = 0; i < latched_connections.size(); ++i) {
+        if (!scheme_latchConnections(latched_connections[i].first, latched_connections[i].second, true)) {
+            RTT::log(RTT::Error) << "Could not latch connections from \'" << latched_connections[i].first << "\' and \'" << latched_connections[i].second << "\'" << RTT::endlog();
+            return false;
+        }
+    }
+
+    master_component_->configure();
 
     // connect ROS actions
     for (int i = 0; i < conman_peers.size(); ++i) {
@@ -1044,7 +1098,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
         iter!=xmlFiles.end();
         ++iter)
     {
-        Logger::In in(std::string("SubsystemDeployer::runXmls") + (*iter));
+        Logger::In in(std::string("SubsystemDeployer::runXmls " + getSubsystemName()) + (*iter));
         TiXmlDocument doc;
         doc.LoadFile( iter->c_str() );
         TiXmlElement *root = doc.RootElement();
@@ -1058,6 +1112,9 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             return false;
         }
 
+        //
+        // <import>
+        //
         const TiXmlElement *import_elem = root->FirstChildElement("import");
         while (import_elem) {
             const char *import_text = import_elem->GetText();
@@ -1072,6 +1129,9 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             import_elem = import_elem->NextSiblingElement("import");
         }
 
+        //
+        // <component>
+        //
         const TiXmlElement *component_elem = root->FirstChildElement("component");
         while (component_elem) {
             const char *type_attr = component_elem->Attribute("type");
@@ -1079,10 +1139,21 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             const char *running_attr = component_elem->Attribute("running");
             const char *ros_action_attr = component_elem->Attribute("ros_action");
 
-            if (!dc_->loadComponent(name_attr, type_attr)) {
-                RTT::log(RTT::Error) << "Unable to load component \'" << std::string(name_attr)
-                    << "\' of type \'" << std::string(type_attr) << "\'" << RTT::endlog();
+            if (!name_attr) {
+                RTT::log(RTT::Error) << "Attribute \'name\' of <component> is not set" << RTT::endlog();
                 return false;
+            }
+            // the component can be added earlier, by e.g. gazebo
+            if (!dc_->hasPeer(name_attr)) {
+                if (!type_attr) {
+                    RTT::log(RTT::Error) << "Attribute \'type\' of <component> \'" << std::string(name_attr) << "\' is not set" << RTT::endlog();
+                    return false;
+                }
+                if (!dc_->loadComponent(name_attr, type_attr)) {
+                    RTT::log(RTT::Error) << "Unable to load component \'" << std::string(name_attr)
+                        << "\' of type \'" << std::string(type_attr) << "\'" << RTT::endlog();
+                    return false;
+                }
             }
 
             if (running_attr && (strcmp(running_attr, "true") == 0 || strcmp(running_attr, "True") == 0 || strcmp(running_attr, "TRUE") == 0)) {
@@ -1112,6 +1183,28 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             component_elem = component_elem->NextSiblingElement("component");
         }
 
+        //
+        // <io_buffer>
+        //
+        const TiXmlElement *io_buffer_elem = root->FirstChildElement("io_buffer");
+        while (io_buffer_elem) {
+            const char *alias_attr = io_buffer_elem->Attribute("alias");
+            const char *name_attr = io_buffer_elem->Attribute("name");
+
+            if (alias_attr && name_attr) {
+                io_buffers_.insert( std::make_pair<std::string, std::string >(std::string(alias_attr), std::string(name_attr)) );
+            }
+            else {
+                RTT::log(RTT::Error) << "wrong <io_buffer> definition: missing \'alias\' or \'name\' attribute" << RTT::endlog();
+                return false;
+            }
+
+            io_buffer_elem = io_buffer_elem->NextSiblingElement("io_buffer");
+        }
+
+        //
+        // <connection>
+        //
         const TiXmlElement *connection_elem = root->FirstChildElement("connection");
         while (connection_elem) {
             const char *from_attr = connection_elem->Attribute("from");
@@ -1128,6 +1221,9 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             connection_elem = connection_elem->NextSiblingElement("connection");
         }
 
+        //
+        // <ros_stream>
+        //
         const TiXmlElement *ros_stream_elem = root->FirstChildElement("ros_stream");
         while (ros_stream_elem) {
             const char *port_attr = ros_stream_elem->Attribute("port");
