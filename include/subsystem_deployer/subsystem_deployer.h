@@ -76,6 +76,8 @@ private:
     bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
     bool isInputPort(const std::string &path) const;
     bool isOutputPort(const std::string &path) const;
+    bool isSubsystemBuffer(const std::string& port_name) const;
+    bool isSubsystemOutput(const std::string& port_name) const;
 
     bool setChannelsNames();
 

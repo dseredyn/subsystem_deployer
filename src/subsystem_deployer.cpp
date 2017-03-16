@@ -773,6 +773,42 @@ bool SubsystemDeployer::isOutputPort(const std::string &path) const {
     return false;
 }
 
+bool SubsystemDeployer::isSubsystemBuffer(const std::string& port_name) const {
+    size_t first_dot = port_name.find(".");
+    if (first_dot == std::string::npos) {
+        return false;
+    }
+    std::string comp_name = port_name.substr(0, first_dot);
+
+    for (int i = 0; i < buffer_rx_components_.size(); ++i) {
+        if (buffer_rx_components_[i]->getName() == comp_name) {
+            return true;
+        }
+        if (buffer_tx_components_[i]->getName() == comp_name) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool SubsystemDeployer::isSubsystemOutput(const std::string& port_name) const {
+    size_t first_dot = port_name.find(".");
+    if (first_dot == std::string::npos) {
+        return false;
+    }
+
+    std::string comp_name = port_name.substr(0, first_dot);
+
+    for (int i = 0; i < buffer_concate_components_.size(); ++i) {
+        if (buffer_concate_components_[i]->getName() == comp_name) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool SubsystemDeployer::configure() {
     Logger::In in("SubsystemDeployer::configure " + getSubsystemName());
 
@@ -815,8 +851,26 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+    for (std::list<std::pair<std::string, std::string> >::iterator it = connections_.begin(); it != connections_.end(); it++) {
+        if (isSubsystemOutput(it->second)) {
+            RTT::log(RTT::Info) << "Subsystem output: " << it->first << "->" << it->second << RTT::endlog();
+        }
+    }
+
     // try connecting ports before components configuration
     for (std::list<std::pair<std::string, std::string> >::iterator it = connections_.begin(); it != connections_.end(); ) {
+        if (isSubsystemBuffer(it->first)) {
+            RTT::log(RTT::Error) << "Could not connect ports \'" << it->first << "\' and \'"
+                << it->second << "\'. Port \'" << it->first << "\' is subsystem i/o buffer." << RTT::endlog();
+            return false;
+        }
+
+        if (isSubsystemBuffer(it->second)) {
+            RTT::log(RTT::Error) << "Could not connect ports \'" << it->first << "\' and \'"
+                << it->second << "\'. Port \'" << it->second << "\' is subsystem i/o buffer." << RTT::endlog();
+            return false;
+        }
+
         if (!isInputPort(it->second) || !isOutputPort(it->first)) {
             ++it;
             continue;
