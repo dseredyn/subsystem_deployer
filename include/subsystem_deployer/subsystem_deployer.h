@@ -90,6 +90,8 @@ private:
     RTT::TaskContext* master_component_;
     RTT::TaskContext* diag_component_;
 
+    bool use_sim_time_;
+
     std::string name_;
     std::string master_package_name_;
     std::string subname_;

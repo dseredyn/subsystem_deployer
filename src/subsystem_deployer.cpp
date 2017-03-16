@@ -306,8 +306,16 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
         if (!setComponentProperty<double >(comp, "period_avg", buf_info.period_avg_)) {
             return false;
         }
-        if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
-            return false;
+
+        if (use_sim_time_) {
+            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
+                return false;
+            }
+        }
+        else {
+            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_sim_max_)) {
+                return false;
+            }
         }
 
         buffer_rx_components_.push_back(comp);
@@ -529,6 +537,15 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     }
 
     Logger::log() << Logger::Info << "loaded core dependencies" << Logger::endl;
+
+    use_sim_time_ = false;
+    ros::param::get("/use_sim_time", use_sim_time_);
+    if (use_sim_time_) {
+        Logger::log() << Logger::Info << "Simulation time is enabled." << Logger::endl;
+    }
+    else {
+        Logger::log() << Logger::Info << "Simulation time is disabled." << Logger::endl;
+    }
 
     //
     // load conman scheme
