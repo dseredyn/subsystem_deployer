@@ -308,12 +308,12 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
         }
 
         if (use_sim_time_) {
-            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
+            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_sim_max_)) {
                 return false;
             }
         }
         else {
-            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_sim_max_)) {
+            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
                 return false;
             }
         }
