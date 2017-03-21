@@ -87,21 +87,25 @@ public:
         for (int i = 0; i < d_.getLowerInputBuffers().size(); ++i) {
             res.lower_inputs.push_back(d_.getChannelName(d_.getLowerInputBuffers()[i].interface_alias_));
             res.lower_inputs_ipc.push_back(d_.getLowerInputBuffers()[i].enable_ipc_);
+            res.alias_lower_inputs.push_back(d_.getLowerInputBuffers()[i].interface_alias_);
         }
 
         for (int i = 0; i < d_.getUpperInputBuffers().size(); ++i) {
             res.upper_inputs.push_back(d_.getChannelName(d_.getUpperInputBuffers()[i].interface_alias_));
             res.upper_inputs_ipc.push_back(d_.getUpperInputBuffers()[i].enable_ipc_);
+            res.alias_upper_inputs.push_back(d_.getUpperInputBuffers()[i].interface_alias_);
         }
 
         for (int i = 0; i < d_.getLowerOutputBuffers().size(); ++i) {
             res.lower_outputs.push_back(d_.getChannelName(d_.getLowerOutputBuffers()[i].interface_alias_));
             res.lower_outputs_ipc.push_back(d_.getLowerOutputBuffers()[i].enable_ipc_);
+            res.alias_lower_outputs.push_back(d_.getLowerOutputBuffers()[i].interface_alias_);
         }
 
         for (int i = 0; i < d_.getUpperOutputBuffers().size(); ++i) {
             res.upper_outputs.push_back(d_.getChannelName(d_.getUpperOutputBuffers()[i].interface_alias_));
             res.upper_outputs_ipc.push_back(d_.getUpperOutputBuffers()[i].enable_ipc_);
+            res.alias_upper_outputs.push_back(d_.getUpperOutputBuffers()[i].interface_alias_);
         }
 
         std::vector<RTT::TaskContext* > components = d_.getAllComponents();
