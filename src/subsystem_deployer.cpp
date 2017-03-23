@@ -64,6 +64,22 @@ public:
       return "\"" + name + "\"";
     }
 
+void addConnection(const subsystem_msgs::ConnectionInfo& ci) {
+        bool found = false;
+        for (int l = 0; l < connections_.size(); ++l) {
+            if (ci.component_from == connections_[l].component_from &&
+                ci.port_from == connections_[l].port_from &&
+                ci.component_to == connections_[l].component_to &&
+                ci.port_to == connections_[l].port_to) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            connections_.push_back(ci);
+        }
+}
+
 void scanService(Service::shared_ptr sv)
 {
     std::vector<std::string> comp_ports;
@@ -75,6 +91,23 @@ void scanService(Service::shared_ptr sv)
       log(Debug) << "Port: " << comp_ports[j] << endlog();
       std::list<internal::ConnectionManager::ChannelDescriptor> chns = sv->getPort(comp_ports[j])->getManager()->getConnections();
       std::list<internal::ConnectionManager::ChannelDescriptor>::iterator k;
+      if(chns.empty()) {
+        subsystem_msgs::ConnectionInfo ci;
+        // Display unconnected ports as well!
+//        m_dot << quote(comp_ports[j]) << "[shape=point];\n";
+        base::InputPortInterface* ipi = dynamic_cast<base::InputPortInterface*>(sv->getPort(comp_ports[j]));
+        base::OutputPortInterface* opi = dynamic_cast<base::OutputPortInterface*>(sv->getPort(comp_ports[j]));
+        if(ipi != 0){
+          ci.component_to = ipi->getInterface()->getOwner()->getName();
+          ci.port_to = comp_ports[j];
+        }
+        else {
+          ci.component_from = opi->getInterface()->getOwner()->getName();
+          ci.port_from = comp_ports[j];
+        }
+        ci.unconnected = true;
+        addConnection(ci);
+      }
       for(k = chns.begin(); k != chns.end(); k++){
         base::ChannelElementBase::shared_ptr bs = k->get<1>();
         ConnPolicy cp = k->get<2>();
@@ -107,7 +140,9 @@ void scanService(Service::shared_ptr sv)
         ci.port_from = port_in;
         ci.component_to = comp_out;
         ci.port_to = port_out;
-        connections_.push_back(ci);
+        ci.unconnected = false;
+        addConnection(ci);
+
 /*
         log(Debug) << "Connection ends at port: " << port_out << endlog();
         log(Debug) << "Connection ends at component: " << comp_out << endlog();
@@ -176,7 +211,7 @@ void scanService(Service::shared_ptr sv)
     bool getSubsystemInfo(   subsystem_msgs::GetSubsystemInfo::Request  &req,
                              subsystem_msgs::GetSubsystemInfo::Response &res) {
 
-		res.is_initialized = d_.isInitialized();
+        res.is_initialized = false;
 
         for (int i = 0; i < d_.getLowerInputBuffers().size(); ++i) {
             res.lower_inputs.push_back(d_.getChannelName(d_.getLowerInputBuffers()[i].interface_alias_));
@@ -236,26 +271,36 @@ void scanService(Service::shared_ptr sv)
             res.components.push_back(cinf);          
         }
 
-        getAllConnections();
-        for (int i = 0; i < connections_.size(); ++i) {
-            res.connections.push_back(connections_[i]);
-            Logger::log() << Logger::Info << "conn " << i << ": "
-                << connections_[i].component_from << "." << connections_[i].port_from << " -> "
-                << connections_[i].component_to << "." << connections_[i].port_to
-                << Logger::endl;
-        }
-
         RTT::TaskContext* master_component = NULL;
-
         for (int i = 0; i < components.size(); ++i) {
             if (components[i]->getName() == "master_component") {
                 master_component = components[i];
                 break;
             }
         }
+        if (!master_component) {
+            return true;
+        }
 
-        std::vector<std::string > b_names =
-            master_component->getProvider<common_behavior::MasterServiceRequester >("master")->getBehaviors();
+        boost::shared_ptr<common_behavior::MasterServiceRequester > master_service = master_component->getProvider<common_behavior::MasterServiceRequester >("master");
+
+        if (!master_service) {
+            return true;
+        }
+
+        getAllConnections();
+        for (int i = 0; i < connections_.size(); ++i) {
+            connections_[i].name = d_.getConnectionName(
+                    connections_[i].component_from + "." + connections_[i].port_from,
+                    connections_[i].component_to + "." + connections_[i].port_to);
+            res.connections.push_back(connections_[i]);
+//            Logger::log() << Logger::Info << "conn " << i << ": "
+//                << connections_[i].component_from << "." << connections_[i].port_from << " -> "
+//                << connections_[i].component_to << "." << connections_[i].port_to << ", name: " << connections_[i].name
+//                << Logger::endl;
+        }
+
+        std::vector<std::string > b_names = master_service->getBehaviors();
         for (int i = 0; i < b_names.size(); ++i) {
             auto b_ptr = common_behavior::BehaviorFactory::Instance()->Create( b_names[i] );
             const std::vector<std::string >& r = b_ptr->getRunningComponents();
@@ -267,10 +312,12 @@ void scanService(Service::shared_ptr sv)
             }
             res.behaviors.push_back( bi );
 
-            Logger::log() << Logger::Info << "behavior " << i << ": "
-                << bi.name
-                << Logger::endl;
+//            Logger::log() << Logger::Info << "behavior " << i << ": "
+//                << bi.name
+//                << Logger::endl;
         }
+
+		res.is_initialized = d_.isInitialized();
 
         return true;
     }
@@ -286,6 +333,16 @@ SubsystemDeployer::SubsystemDeployer(const std::string& name)
     : name_(name)
 	, is_initialized_(false)
 {
+}
+
+const std::string& SubsystemDeployer::getConnectionName(const std::string& from, const std::string& to) const {
+    static const std::string empty = std::string();
+    for (std::list<Connection >::const_iterator it = connections_.begin(); it != connections_.end(); ++it) {
+        if (it->from == from && it->to == to) {
+            return it->name;
+        }
+    }
+    return empty;
 }
 
 bool SubsystemDeployer::isInitialized() const {
@@ -1001,33 +1058,35 @@ bool SubsystemDeployer::configure() {
         }
     }
 
-    for (std::list<std::pair<std::string, std::string> >::iterator it = connections_.begin(); it != connections_.end(); it++) {
-        if (isSubsystemOutput(it->second)) {
-            RTT::log(RTT::Info) << "Subsystem output: " << it->first << "->" << it->second << RTT::endlog();
+    std::list<Connection > connections_to_join = connections_;
+
+    for (std::list<Connection >::iterator it = connections_to_join.begin(); it != connections_to_join.end(); it++) {
+        if (isSubsystemOutput(it->to)) {
+            RTT::log(RTT::Info) << "Subsystem output: " << it->from << "->" << it->to << RTT::endlog();
         }
     }
 
     // try connecting ports before components configuration
-    for (std::list<std::pair<std::string, std::string> >::iterator it = connections_.begin(); it != connections_.end(); ) {
-        if (isSubsystemBuffer(it->first)) {
-            RTT::log(RTT::Error) << "Could not connect ports \'" << it->first << "\' and \'"
-                << it->second << "\'. Port \'" << it->first << "\' is subsystem i/o buffer." << RTT::endlog();
+    for (std::list<Connection >::iterator it = connections_to_join.begin(); it != connections_to_join.end(); ) {
+        if (isSubsystemBuffer(it->from)) {
+            RTT::log(RTT::Error) << "Could not connect ports \'" << it->from << "\' and \'"
+                << it->to << "\'. Port \'" << it->from << "\' is subsystem i/o buffer." << RTT::endlog();
             return false;
         }
 
-        if (isSubsystemBuffer(it->second)) {
-            RTT::log(RTT::Error) << "Could not connect ports \'" << it->first << "\' and \'"
-                << it->second << "\'. Port \'" << it->second << "\' is subsystem i/o buffer." << RTT::endlog();
+        if (isSubsystemBuffer(it->to)) {
+            RTT::log(RTT::Error) << "Could not connect ports \'" << it->from << "\' and \'"
+                << it->to << "\'. Port \'" << it->to << "\' is subsystem i/o buffer." << RTT::endlog();
             return false;
         }
 
-        if (!isInputPort(it->second) || !isOutputPort(it->first)) {
+        if (!isInputPort(it->to) || !isOutputPort(it->from)) {
             ++it;
             continue;
         }
 
-        if (dc_->connect(it->first, it->second, ConnPolicy::data(ConnPolicy::LOCKED))) {
-            connections_.erase(it++);
+        if (dc_->connect(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
+            connections_to_join.erase(it++);
         }
         else {
             ++it;
@@ -1068,19 +1127,19 @@ bool SubsystemDeployer::configure() {
     }
 
     // connect remaining ports
-    for (std::list<std::pair<std::string, std::string> >::iterator it = connections_.begin(); it != connections_.end(); ++it) {
-        if (!isInputPort(it->second)) {
-            RTT::log(RTT::Error) << "port \'" << it->second << "\' is not an input port" << RTT::endlog();
+    for (std::list<Connection >::iterator it = connections_to_join.begin(); it != connections_to_join.end(); ++it) {
+        if (!isInputPort(it->to)) {
+            RTT::log(RTT::Error) << "port \'" << it->to << "\' is not an input port" << RTT::endlog();
             return false;
         }
 
-        if (!isOutputPort(it->first)) {
-            RTT::log(RTT::Error) << "port \'" << it->first << "\' is not an output port" << RTT::endlog();
+        if (!isOutputPort(it->from)) {
+            RTT::log(RTT::Error) << "port \'" << it->from << "\' is not an output port" << RTT::endlog();
             return false;
         }
 
-        if (!dc_->connect(it->first, it->second, ConnPolicy::data(ConnPolicy::LOCKED))) {
-            RTT::log(RTT::Error) << "Unable to connect \'" << it->first << "\' and \'" << it->second << "\'" << RTT::endlog();
+        if (!dc_->connect(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
+            RTT::log(RTT::Error) << "Unable to connect \'" << it->from << "\' and \'" << it->to << "\'" << RTT::endlog();
             return false;
         }
     }
@@ -1354,9 +1413,20 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
         while (connection_elem) {
             const char *from_attr = connection_elem->Attribute("from");
             const char *to_attr = connection_elem->Attribute("to");
+            const char *name_attr = connection_elem->Attribute("name");
 
             if (from_attr && to_attr) {
-                connections_.push_back( std::make_pair<std::string, std::string >(std::string(from_attr), std::string(to_attr)) );
+                std::string from = from_attr;
+                std::string to = to_attr;
+                std::string name;
+                if (name_attr) {
+                    name = name_attr;
+                    RTT::log(RTT::Info) << "connection " << from << "->" << to << "  has name: " << name << RTT::endlog();
+                }
+                else {
+                    RTT::log(RTT::Warning) << "connection " << from << "->" << to << "  has no name" << RTT::endlog();
+                }
+                connections_.push_back( Connection(from, to, name) );
             }
             else {
                 RTT::log(RTT::Error) << "wrong connection definition: missing \'from\' or \'to\' attribute" << RTT::endlog();

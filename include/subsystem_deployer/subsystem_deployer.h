@@ -66,6 +66,8 @@ public:
 
     bool isInitialized() const;
 
+    const std::string& getConnectionName(const std::string& from, const std::string& to) const;
+
 private:
 
     bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
@@ -116,9 +118,18 @@ private:
 
     RTT::Service::shared_ptr dot_graph_service_;
 
+    class Connection {
+    public:
+        Connection(const std::string& from, const std::string& to, const std::string& name) {
+            this->from = from;
+            this->to = to;
+            this->name = name;
+        }
+        std::string from, to, name;
+    };
     std::set<std::string > components_initially_running_;
     std::map<std::string, std::string > components_ros_action_;
-    std::list<std::pair<std::string, std::string> > connections_;
+    std::list<Connection > connections_;
     std::map<std::string, std::string > io_buffers_;
     std::list<std::pair<std::string, std::string> > ros_streams_;
     std::map<std::string, std::vector<std::string> > component_services_;
