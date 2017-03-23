@@ -53,31 +53,125 @@
 using namespace RTT;
 using namespace std;
 
-// dummy component for rtt_dot_service
-class GraphComponent: public RTT::TaskContext {
-public:
-    explicit GraphComponent(const std::string &name)
-        : RTT::TaskContext(name, PreOperational) {
-    }
-
-    bool configureHook() {
-        return true;
-    }
-
-    bool startHook() {
-        return true;
-    }
-
-    void updateHook() {
-    }
-};
-
 class SubsystemDeployerRosService : public SubsystemDeployerRosServiceBase {
 public:
     SubsystemDeployerRosService(const SubsystemDeployer& d)
             : d_(d)
             , ss_GetSubsystemInfo_( n_.advertiseService(d.getSubsystemName() + "/getSubsystemInfo", &SubsystemDeployerRosService::getSubsystemInfo, this) ) {
     }
+
+    std::string quote(std::string const& name){
+      return "\"" + name + "\"";
+    }
+
+void scanService(Service::shared_ptr sv)
+{
+    std::vector<std::string> comp_ports;
+    comp_ports.clear();
+    // Get all component ports
+    comp_ports = sv->getPortNames();
+    // Loop over all ports
+    for(unsigned int j = 0; j < comp_ports.size(); j++){
+      log(Debug) << "Port: " << comp_ports[j] << endlog();
+      std::list<internal::ConnectionManager::ChannelDescriptor> chns = sv->getPort(comp_ports[j])->getManager()->getConnections();
+      std::list<internal::ConnectionManager::ChannelDescriptor>::iterator k;
+      for(k = chns.begin(); k != chns.end(); k++){
+        base::ChannelElementBase::shared_ptr bs = k->get<1>();
+        ConnPolicy cp = k->get<2>();
+        log(Debug) << "Connection id: " << cp.name_id << endlog();
+        std::string comp_in, port_in;
+        if(bs->getInputEndPoint()->getPort() != 0){
+          if (bs->getInputEndPoint()->getPort()->getInterface() != 0 ){
+            comp_in = bs->getInputEndPoint()->getPort()->getInterface()->getOwner()->getName();
+          }
+          else{
+            comp_in = "free input ports";
+          }
+          port_in = bs->getInputEndPoint()->getPort()->getName();
+        }
+        log(Debug) << "Connection starts at port: " << port_in << endlog();
+        log(Debug) << "Connection starts at component: " << comp_in << endlog();
+        std::string comp_out, port_out;
+        if(bs->getOutputEndPoint()->getPort() != 0){
+          if (bs->getOutputEndPoint()->getPort()->getInterface() != 0 ){
+            comp_out = bs->getOutputEndPoint()->getPort()->getInterface()->getOwner()->getName();
+          }
+          else{
+            comp_out = "free output ports";
+          }
+          port_out = bs->getOutputEndPoint()->getPort()->getName();
+        }
+
+        subsystem_msgs::ConnectionInfo ci;
+        ci.component_from = comp_in;
+        ci.port_from = port_in;
+        ci.component_to = comp_out;
+        ci.port_to = port_out;
+        connections_.push_back(ci);
+/*
+        log(Debug) << "Connection ends at port: " << port_out << endlog();
+        log(Debug) << "Connection ends at component: " << comp_out << endlog();
+        std::stringstream ss;
+        // Only consider input ports
+        if(dynamic_cast<base::InputPortInterface*>(sv->getPort(comp_ports[j])) != 0){
+          // First, consider regular connections
+          if(!comp_in.empty()){
+            // If the ConnPolicy has a non-empty name, use that name as the topic name
+            if(!cp.name_id.empty()){
+              // plot the channel element as a seperate box and connect input and output with it
+              m_dot << quote(cp.name_id) << "[" << m_chan_args << "label=" << quote(cp.name_id) << "];\n";
+              m_dot << quote(comp_in) << "->" << quote(cp.name_id) << "[" << m_conn_args << "label=" << quote(port_in) << "];\n";
+              m_dot << quote(cp.name_id) << "->" << quote(comp_out) << "[" << m_conn_args << "label=" << quote(port_out) << "];\n";
+            }
+            // Else, use a custom name: compInportIncompOutportOut
+            else{
+              // plot the channel element as a seperate box and connect input and output with it
+              m_dot << quote(comp_in) << "->" << quote(comp_in + port_in + comp_out + port_out) << "[" << m_conn_args << "label=" << quote(port_in) << "];\n";
+              m_dot << quote(comp_in + port_in + comp_out + port_out) << "->" << comp_out << "[" << m_conn_args << "label=" << quote(port_out) << "];\n";
+            }
+          }
+          // Here, we have a stream?!
+          else{
+            m_dot << quote(comp_out + port_out) << "->" << quote(comp_out) << "[" << m_conn_args << "label=" << quote(port_out) << "];\n";
+          }
+        }
+        else{
+          // Consider only output ports that do not have a corresponding input port
+          if(comp_out.empty()){
+            // If the ConnPolicy has a non-empty name, use that name as the topic name
+            if(!cp.name_id.empty()){
+              // plot the channel element as a seperate box and connect input and output with it
+              m_dot << quote(cp.name_id) << "[" << m_chan_args << "label=" << quote(cp.name_id) << "];\n";
+              m_dot << quote(comp_in) << "->" << quote(cp.name_id) << "[" << m_conn_args << "label=" << quote(port_in) << "];\n";
+            }
+            else{
+              // plot the channel element as a seperate box and connect input and output with it
+              m_dot << quote(comp_in) << "->" << quote( comp_in + port_in) << "[" << m_conn_args << "label=" << quote(port_in) << "];\n";
+            }
+          }
+          else {
+          }
+        }
+*/
+      }
+    }
+    // Recurse:
+    Service::ProviderNames providers = sv->getProviderNames();
+    for(Service::ProviderNames::iterator it=providers.begin(); it != providers.end(); ++it) {
+        scanService(sv->provides(*it) );
+    }
+}
+
+
+    bool getAllConnections() {
+        connections_.clear();
+        std::vector<RTT::TaskContext* > components = d_.getAllComponents();
+        for(unsigned int i = 0; i < components.size(); i++){
+            TaskContext* tc = components[i];
+            scanService(tc->provides());
+        }
+    }
+
 
     bool getSubsystemInfo(   subsystem_msgs::GetSubsystemInfo::Request  &req,
                              subsystem_msgs::GetSubsystemInfo::Response &res) {
@@ -139,10 +233,44 @@ public:
 
                 cinf.ports.push_back(pinf);
             }
-            res.components.push_back(cinf);
+            res.components.push_back(cinf);          
         }
 
-//TODO: BehaviorInfo[] behaviors
+        getAllConnections();
+        for (int i = 0; i < connections_.size(); ++i) {
+            res.connections.push_back(connections_[i]);
+            Logger::log() << Logger::Info << "conn " << i << ": "
+                << connections_[i].component_from << "." << connections_[i].port_from << " -> "
+                << connections_[i].component_to << "." << connections_[i].port_to
+                << Logger::endl;
+        }
+
+        RTT::TaskContext* master_component = NULL;
+
+        for (int i = 0; i < components.size(); ++i) {
+            if (components[i]->getName() == "master_component") {
+                master_component = components[i];
+                break;
+            }
+        }
+
+        std::vector<std::string > b_names =
+            master_component->getProvider<common_behavior::MasterServiceRequester >("master")->getBehaviors();
+        for (int i = 0; i < b_names.size(); ++i) {
+            auto b_ptr = common_behavior::BehaviorFactory::Instance()->Create( b_names[i] );
+            const std::vector<std::string >& r = b_ptr->getRunningComponents();
+
+            subsystem_msgs::BehaviorInfo bi;
+            bi.name = b_ptr->getShortName();
+            for (int j = 0; j < r.size(); ++j) {
+                bi.running_components.push_back( r[j] );
+            }
+            res.behaviors.push_back( bi );
+
+            Logger::log() << Logger::Info << "behavior " << i << ": "
+                << bi.name
+                << Logger::endl;
+        }
 
         return true;
     }
@@ -151,6 +279,7 @@ private:
     const SubsystemDeployer& d_;
     ros::NodeHandle n_;
     ros::ServiceServer ss_GetSubsystemInfo_;
+    std::vector<subsystem_msgs::ConnectionInfo > connections_;
 };
 
 SubsystemDeployer::SubsystemDeployer(const std::string& name)
@@ -1034,65 +1163,6 @@ bool SubsystemDeployer::configure() {
                 RTT::log(RTT::Error) << "Could not connect action \'" << it->second << "\' to action server" << RTT::endlog();
                 return false;
             }
-        }
-    }
-
-    //
-    // load rtt_dot_service
-    //
-    {
-        boost::shared_ptr<GraphComponent > gc( new GraphComponent("graph_component"));
-
-        for (int i = 0; i < all_components.size(); ++i) {
-            gc->addPeer( all_components[i] );
-        }
-
-        if (!import("rtt_dot_service")) {
-            Logger::log() << Logger::Warning << "Could not load rtt_dot_service. Graph generation is disabled." << Logger::endl;
-        }
-        else if (!gc->loadService("dot")) {
-            Logger::log() << Logger::Warning << "Could not load rtt_dot_service \'dot\'. Graph generation is disabled." << Logger::endl;
-        }
-        else {
-            dot_graph_service_ = gc->provides("dot");
-            if (!dot_graph_service_) {
-                Logger::log() << Logger::Error << "Could not get loaded rtt_dot_service \'dot\'." << Logger::endl;
-                return false;
-            }
-            Logger::log() << Logger::Info << "Loaded rtt_dot_service \'dot\'. Graph generation is enabled." << Logger::endl;
-        }
-
-        if (dot_graph_service_) {
-            RTT::Property<std::string >* dot_file = dynamic_cast<RTT::Property<std::string >* >(dot_graph_service_->getProperty("dot_file"));
-            if (!dot_file) {
-                RTT::log(RTT::Error) << "Could not get property \'dot_graph\' of rtt_dot_service" << RTT::endlog();
-                return false;
-            }
-            dot_file->set(std::string("/tmp/") + getSubsystemName() + ".dot");
-
-            RTT::OperationCaller<bool()> generate_graph = dot_graph_service_->getOperation("generate");
-            if (!generate_graph.ready()) {
-                RTT::log(RTT::Error) << "Could not get operation \'generate\' of rtt_dot_service" << RTT::endlog();
-                return false;
-            }
-
-            if (!generate_graph()) {
-                RTT::log(RTT::Error) << "Could not generate graph with rtt_dot_service.generate()" << RTT::endlog();
-                return false;
-            }
-
-            if (gc->provides()->hasService("dot")) {
-                gc->provides()->removeService("dot");
-                if (gc->provides()->hasService("dot")) {
-                    RTT::log(RTT::Error) << "Could not remove dot service from master component." << RTT::endlog();
-                    return false;
-                }
-            }
-            else {
-                RTT::log(RTT::Error) << "Could not find dot service in master component." << RTT::endlog();
-                return false;
-            }
-            RTT::log(RTT::Info) << "Generated graph." << RTT::endlog();
         }
     }
 
