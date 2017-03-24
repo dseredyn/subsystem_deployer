@@ -41,6 +41,8 @@
 
 #include <rtt_roscomm/rtt_rostopic.h>
 
+#include "Eigen/Dense"
+
 #include <iostream>
 #include <string>
 #include <unistd.h>
@@ -579,6 +581,74 @@ bool SubsystemDeployer::deployBufferConcateComponent(const common_behavior::Buff
 
     return true;
 }
+/*
+void SubsystemDeployer::event(RTT::base::PortInterface *pi) {
+    RTT::base::PortInterface *out = pi->getInterface()->getPort(pi->getName() + "_out");
+
+    double val;
+    dynamic_cast<RTT::InputPort<double >* >(pi)->read(val);
+//    RTT::log(RTT::Info) << "SubsystemDeployer::event " << pi->getName() << " " << val << RTT::endlog();
+    dynamic_cast<RTT::OutputPort<Eigen::Matrix<double, 1, 1> >* >(out)->write(Eigen::Matrix<double, 1, 1>(val));
+}
+*/
+bool SubsystemDeployer::connectPorts(const std::string& from, const std::string& to, const ConnPolicy& cp) {
+//    if (!dc_->connect(from, to, cp)) {
+//    }
+
+    if (dc_->connect(from, to, cp)) {
+        return true;
+    }
+    else {
+        RTT::base::PortInterface *pa = strToPort(from);
+        RTT::base::PortInterface *pb = strToPort(to);
+        if (!pa) {
+            RTT::log(RTT::Error) << "no such port : " << from << RTT::endlog();
+            return false;
+        }
+        if (!pb) {
+            RTT::log(RTT::Error) << "no such port : " << to << RTT::endlog();
+            return false;
+        }
+
+        auto converters = common_behavior::PortConverterFactory::Instance()->getPortConverters();
+        for (auto it = converters.begin(); it != converters.end(); ++it) {
+            auto conv = common_behavior::PortConverterFactory::Instance()->Create( it->first );
+            if (conv->isCompatible(pa, pb)) {
+                if (conv->connectPorts(pa, pb, cp)) {
+                    port_converters_.push_back(conv);
+                    return true;
+                }
+            }
+        }
+/*
+        RTT::OutputPort<double > *port_a = dynamic_cast<RTT::OutputPort<double >* >(pa);
+        RTT::InputPort<Eigen::Matrix<double, 1, 1> > *port_b = dynamic_cast<RTT::InputPort<Eigen::Matrix<double, 1, 1> >* >(pb);
+        if (port_a && port_b) {
+            std::string port_b_name = port_b->getName();
+            RTT::DataFlowInterface *dfi_b = port_b->getInterface();
+
+            // from -> to_in, to_in_out -> to
+            RTT::InputPort<double > *new_port_b = new RTT::InputPort<double >(port_b_name + "_in");
+            RTT::OutputPort<Eigen::Matrix<double, 1, 1> > *new_port_b_out = new RTT::OutputPort<Eigen::Matrix<double, 1, 1> >(port_b_name + "_in_out");
+            dfi_b->getOwner()->ports()->addEventPort( *new_port_b, boost::bind( &SubsystemDeployer::event, this, _1 ) );
+            dfi_b->getOwner()->ports()->addLocalPort( *new_port_b_out);
+            if (!dc_->connect(to + "_in_out", to, cp)) {
+                RTT::log(RTT::Info) << "could not connect: " << (to + "_in_out") << ", " << (to) << RTT::endlog();
+            }
+            if (!dc_->connect(from, to + "_in", cp)) {
+                RTT::log(RTT::Info) << "could not connect: " << from << ", " << (to + "_in") << RTT::endlog();
+            }
+
+            RTT::log(RTT::Info) << "added port conversion: " << from << ", " << to << RTT::endlog();
+            return true;
+        }
+*/
+//        const types::TypeInfo *ti = pi->getTypeInfo();
+//        RTT::log(RTT::Info) << "port: " << from << ", type: " << ti->getTypeName() << ", is_eigen: " << (ptr?"true":"false") << RTT::endlog();
+    }
+    return false;
+//    return dc_->connect(from, to, cp);
+}
 
 bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers) {
     for (int i = 0; i < buffers.size(); ++i) {
@@ -597,20 +667,21 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 
         if (buf_info.enable_ipc_) {
             // connect Split-Rx ports
-            if (!dc_->connect(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+//            if (!dc_->connect(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+            if (!connectPorts(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
                 RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << alias << RTT::endlog();
                 return false;
             }
 
             // connect Rx to master_component
-            if (!dc_->connect(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
+            if (!connectPorts(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
                 RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
                 return false;
             }
 
             if (buf_info.event_) {
                 // connect Rx no_data to master_component
-                if (!dc_->connect(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
+                if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
                     RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
                     return false;
                 }
@@ -623,13 +694,13 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
             }
 
             // connect Split-Concate ports
-            if (!dc_->connect(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+            if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
                 RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << alias << RTT::endlog();
                 return false;
             }
 
             // connect Concate to master_component
-            if (!dc_->connect(alias + "Concate.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy())) {
+            if (!connectPorts(alias + "Concate.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy())) {
                 RTT::log(RTT::Error) << "could not connect ports Concate-master_component: " << alias << RTT::endlog();
                 return false;
             }
@@ -654,7 +725,7 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
         const std::string alias = buf_info.interface_alias_;
 
         if (buf_info.enable_ipc_) {
-            if (!dc_->connect(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
+            if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
                 RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
                 return false;
             }
@@ -666,7 +737,7 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
             }
 
             // connect Split-Concate ports
-            if (!dc_->connect(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+            if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
                 RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << alias << RTT::endlog();
                 return false;
             }
@@ -944,40 +1015,25 @@ std::vector<RTT::TaskContext* > SubsystemDeployer::getNonCoreComponents() const 
     return result;
 }
 
-bool SubsystemDeployer::isInputPort(const std::string &path) const {
+RTT::base::PortInterface* SubsystemDeployer::strToPort(const std::string &path) const {
     size_t first_dot = path.find(".");
     if (first_dot == std::string::npos) {
-        return false;
+        return NULL;
     }
 
     TaskContext* tc = dc_->getPeer( path.substr(0, first_dot) );
     if (!tc) {
-        return false;
+        return NULL;
     }
-    RTT::base::PortInterface *pi = tc->ports()->getPort( path.substr(first_dot+1, std::string::npos) );
-    if (dynamic_cast<RTT::base::InputPortInterface*>(pi)) {
-        return true;
-    }
+    return tc->ports()->getPort( path.substr(first_dot+1, std::string::npos) );
+}
 
-    return false;
+bool SubsystemDeployer::isInputPort(const std::string &path) const {
+    return dynamic_cast<RTT::base::InputPortInterface*>(strToPort(path)) != NULL;
 }
 
 bool SubsystemDeployer::isOutputPort(const std::string &path) const {
-    size_t first_dot = path.find(".");
-    if (first_dot == std::string::npos) {
-        return false;
-    }
-
-    TaskContext* tc = dc_->getPeer( path.substr(0, first_dot) );
-    if (!tc) {
-        return false;
-    }
-    RTT::base::PortInterface *pi = tc->ports()->getPort( path.substr(first_dot+1, std::string::npos) );
-    if (dynamic_cast<RTT::base::OutputPortInterface*>(pi)) {
-        return true;
-    }
-
-    return false;
+    return dynamic_cast<RTT::base::OutputPortInterface*>(strToPort(path)) != NULL;
 }
 
 bool SubsystemDeployer::isSubsystemBuffer(const std::string& port_name) const {
@@ -1085,7 +1141,7 @@ bool SubsystemDeployer::configure() {
             continue;
         }
 
-        if (dc_->connect(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
+        if (connectPorts(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
             connections_to_join.erase(it++);
         }
         else {
@@ -1138,7 +1194,7 @@ bool SubsystemDeployer::configure() {
             return false;
         }
 
-        if (!dc_->connect(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
+        if (!connectPorts(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
             RTT::log(RTT::Error) << "Unable to connect \'" << it->from << "\' and \'" << it->to << "\'" << RTT::endlog();
             return false;
         }
@@ -1181,7 +1237,7 @@ bool SubsystemDeployer::configure() {
     //
     RTT::OperationCaller<bool(const std::string&, const std::string&, const bool) > scheme_latchConnections = scheme_->getOperation("latchConnections");
     if (!scheme_latchConnections.ready()) {
-        Logger::log() << Logger::Error << "Could not get getFlowCycles operation of Conman scheme" << Logger::endl;
+        Logger::log() << Logger::Error << "Could not get latchConnections operation of Conman scheme" << Logger::endl;
         return false;
     }
 

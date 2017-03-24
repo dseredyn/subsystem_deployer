@@ -33,6 +33,7 @@
 #include <ocl/DeploymentComponent.hpp>
 #include "common_behavior/master_service_requester.h"
 #include "common_behavior/master_service.h"
+#include "common_behavior/abstract_port_converter.h"
 
 class SubsystemDeployerRosServiceBase {};
 
@@ -70,6 +71,10 @@ public:
 
 private:
 
+    RTT::base::PortInterface* strToPort(const std::string &path) const;
+    bool connectPorts(const std::string& from, const std::string& to, const RTT::ConnPolicy& conn);
+//    void event(RTT::base::PortInterface *pi);
+
     bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
     bool deployOutputBufferIpcComponent(const common_behavior::OutputBufferInfo& buf_info);
     bool deployBufferSplitComponent(const common_behavior::BufferInfo& buf_info);
@@ -103,6 +108,8 @@ private:
     boost::shared_ptr<OCL::DeploymentComponent > dc_;
     RTT::OperationCaller<bool(const std::string&)> ros_import_;
     boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_;
+
+    std::vector<shared_ptr<common_behavior::PortConverterBase > > port_converters_;
 
     std::vector<RTT::TaskContext* > buffer_rx_components_;
     std::vector<RTT::TaskContext* > buffer_tx_components_;
