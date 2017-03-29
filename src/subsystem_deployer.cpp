@@ -340,7 +340,8 @@ SubsystemDeployer::SubsystemDeployer(const std::string& name)
 const std::string& SubsystemDeployer::getConnectionName(const std::string& from, const std::string& to) const {
     static const std::string empty = std::string();
     for (std::list<Connection >::const_iterator it = connections_.begin(); it != connections_.end(); ++it) {
-        if (it->from == from && it->to == to) {
+        std::string to_conv = it->to + "_conv_in";
+        if (it->from == from && (it->to == to || to_conv == to)) {
             return it->name;
         }
     }
