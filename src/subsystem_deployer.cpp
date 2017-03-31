@@ -245,6 +245,7 @@ void scanService(Service::shared_ptr sv)
             RTT::TaskContext* tc = components[i];
             subsystem_msgs::ComponentInfo cinf;
             cinf.name = tc->getName();
+            cinf.latex = d_.getComponentNameLatex(tc->getName());
             std::vector<RTT::base::PortInterface* > ports = tc->ports()->getPorts();
             for (int ip = 0; ip < ports.size(); ++ip) {
                 subsystem_msgs::PortInfo pinf;
@@ -293,6 +294,9 @@ void scanService(Service::shared_ptr sv)
         getAllConnections();
         for (int i = 0; i < connections_.size(); ++i) {
             connections_[i].name = d_.getConnectionName(
+                    connections_[i].component_from + "." + connections_[i].port_from,
+                    connections_[i].component_to + "." + connections_[i].port_to);
+            connections_[i].latex = d_.getConnectionNameLatex(
                     connections_[i].component_from + "." + connections_[i].port_from,
                     connections_[i].component_to + "." + connections_[i].port_to);
             res.connections.push_back(connections_[i]);
@@ -346,6 +350,26 @@ const std::string& SubsystemDeployer::getConnectionName(const std::string& from,
         }
     }
     return empty;
+}
+
+const std::string& SubsystemDeployer::getConnectionNameLatex(const std::string& from, const std::string& to) const {
+    static const std::string empty = std::string();
+    for (std::list<Connection >::const_iterator it = connections_.begin(); it != connections_.end(); ++it) {
+        std::string to_conv = it->to + "_conv_in";
+        if (it->from == from && (it->to == to || to_conv == to)) {
+            return it->latex;
+        }
+    }
+    return empty;
+}
+
+const std::string& SubsystemDeployer::getComponentNameLatex(const std::string& name) const {
+    static const std::string empty = std::string();
+    auto it = component_names_latex_.find(name);
+    if (it == component_names_latex_.end()) {
+        return empty;
+    }
+    return it->second;
 }
 
 bool SubsystemDeployer::isInitialized() const {
@@ -1397,6 +1421,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
         while (component_elem) {
             const char *type_attr = component_elem->Attribute("type");
             const char *name_attr = component_elem->Attribute("name");
+            const char *latex_attr = component_elem->Attribute("latex");
             const char *running_attr = component_elem->Attribute("running");
             const char *ros_action_attr = component_elem->Attribute("ros_action");
 
@@ -1441,6 +1466,10 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                 service_elem = service_elem->NextSiblingElement("service");
             }
 
+            if (latex_attr) {
+                component_names_latex_.insert( std::make_pair<std::string, std::string >(std::string(name_attr), std::string(latex_attr)) );
+            }
+
             component_elem = component_elem->NextSiblingElement("component");
         }
 
@@ -1471,11 +1500,13 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             const char *from_attr = connection_elem->Attribute("from");
             const char *to_attr = connection_elem->Attribute("to");
             const char *name_attr = connection_elem->Attribute("name");
+            const char *latex_attr = connection_elem->Attribute("latex");
 
             if (from_attr && to_attr) {
                 std::string from = from_attr;
                 std::string to = to_attr;
                 std::string name;
+                std::string latex;
                 if (name_attr) {
                     name = name_attr;
                     RTT::log(RTT::Info) << "connection " << from << "->" << to << "  has name: " << name << RTT::endlog();
@@ -1483,7 +1514,11 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                 else {
                     RTT::log(RTT::Warning) << "connection " << from << "->" << to << "  has no name" << RTT::endlog();
                 }
-                connections_.push_back( Connection(from, to, name) );
+                if (latex_attr) {
+                    latex = latex_attr;
+                    //RTT::log(RTT::Info) << "connection " << from << "->" << to << "  has name: " << name << RTT::endlog();
+                }
+                connections_.push_back( Connection(from, to, name, latex) );
             }
             else {
                 RTT::log(RTT::Error) << "wrong connection definition: missing \'from\' or \'to\' attribute" << RTT::endlog();

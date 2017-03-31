@@ -68,6 +68,8 @@ public:
     bool isInitialized() const;
 
     const std::string& getConnectionName(const std::string& from, const std::string& to) const;
+    const std::string& getConnectionNameLatex(const std::string& from, const std::string& to) const;
+    const std::string& getComponentNameLatex(const std::string& name) const;
 
 private:
 
@@ -127,15 +129,17 @@ private:
 
     class Connection {
     public:
-        Connection(const std::string& from, const std::string& to, const std::string& name) {
+        Connection(const std::string& from, const std::string& to, const std::string& name, const std::string& latex) {
             this->from = from;
             this->to = to;
             this->name = name;
+            this->latex = latex;
         }
-        std::string from, to, name;
+        std::string from, to, name, latex;
     };
     std::set<std::string > components_initially_running_;
     std::map<std::string, std::string > components_ros_action_;
+    std::map<std::string, std::string > component_names_latex_;
     std::list<Connection > connections_;
     std::map<std::string, std::string > io_buffers_;
     std::list<std::pair<std::string, std::string> > ros_streams_;
