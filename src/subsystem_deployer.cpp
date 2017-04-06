@@ -217,25 +217,21 @@ void scanService(Service::shared_ptr sv)
 
         for (int i = 0; i < d_.getLowerInputBuffers().size(); ++i) {
             res.lower_inputs.push_back(d_.getChannelName(d_.getLowerInputBuffers()[i].interface_alias_));
-            res.lower_inputs_ipc.push_back(d_.getLowerInputBuffers()[i].enable_ipc_);
             res.alias_lower_inputs.push_back(d_.getLowerInputBuffers()[i].interface_alias_);
         }
 
         for (int i = 0; i < d_.getUpperInputBuffers().size(); ++i) {
             res.upper_inputs.push_back(d_.getChannelName(d_.getUpperInputBuffers()[i].interface_alias_));
-            res.upper_inputs_ipc.push_back(d_.getUpperInputBuffers()[i].enable_ipc_);
             res.alias_upper_inputs.push_back(d_.getUpperInputBuffers()[i].interface_alias_);
         }
 
         for (int i = 0; i < d_.getLowerOutputBuffers().size(); ++i) {
             res.lower_outputs.push_back(d_.getChannelName(d_.getLowerOutputBuffers()[i].interface_alias_));
-            res.lower_outputs_ipc.push_back(d_.getLowerOutputBuffers()[i].enable_ipc_);
             res.alias_lower_outputs.push_back(d_.getLowerOutputBuffers()[i].interface_alias_);
         }
 
         for (int i = 0; i < d_.getUpperOutputBuffers().size(); ++i) {
             res.upper_outputs.push_back(d_.getChannelName(d_.getUpperOutputBuffers()[i].interface_alias_));
-            res.upper_outputs_ipc.push_back(d_.getUpperOutputBuffers()[i].enable_ipc_);
             res.alias_upper_outputs.push_back(d_.getUpperOutputBuffers()[i].interface_alias_);
         }
 
@@ -421,15 +417,12 @@ bool SubsystemDeployer::import(const std::string& name) {
 
 static void printInputBufferInfo(const common_behavior::InputBufferInfo& info) {
     Logger::log()
-        << " enable_ipc: " << (info.enable_ipc_?"true":"false")
-//        << ", event_port: " << (info.event_port_?"true":"false")
         << ", interface_alias: \'" << info.interface_alias_ << "\'"
         << Logger::endl;
 }
 
 static void printOutputBufferInfo(const common_behavior::OutputBufferInfo& info) {
     Logger::log()
-        << " enable_ipc: " << (info.enable_ipc_?"true":"false")
         << ", interface_alias: \'" << info.interface_alias_ << "\'"
         << Logger::endl;
 }
@@ -520,43 +513,39 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
 
     std::string name = buf_info.interface_alias_ + suffix;
 
-    if (buf_info.enable_ipc_) {
-        if (!dc_->loadComponent(name, type)) {
-            RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
-            return false;
-        }
-        RTT::TaskContext* comp = dc_->getPeer(name);
-        if (!setTriggerOnStart(comp, true)) {
-            return false;
-        }
-
-        if (!setComponentProperty<bool >(comp, "event", buf_info.event_)) {
-            return false;
-        }
-        if (!setComponentProperty<double >(comp, "period_min", buf_info.period_min_)) {
-            return false;
-        }
-        if (!setComponentProperty<double >(comp, "period_avg", buf_info.period_avg_)) {
-            return false;
-        }
-
-        if (use_sim_time_) {
-            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_sim_max_)) {
-                return false;
-            }
-        }
-        else {
-            if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
-                return false;
-            }
-        }
-
-        buffer_rx_components_.push_back(comp);
-
-        return true;
+    if (!dc_->loadComponent(name, type)) {
+        RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+        return false;
     }
-    RTT::log(RTT::Error) << "component " << type << " should not have IPC buffer" << RTT::endlog();
-    return false;
+    RTT::TaskContext* comp = dc_->getPeer(name);
+    if (!setTriggerOnStart(comp, true)) {
+        return false;
+    }
+
+    if (!setComponentProperty<bool >(comp, "event", buf_info.event_)) {
+        return false;
+    }
+    if (!setComponentProperty<double >(comp, "period_min", buf_info.period_min_)) {
+        return false;
+    }
+    if (!setComponentProperty<double >(comp, "period_avg", buf_info.period_avg_)) {
+        return false;
+    }
+
+    if (use_sim_time_) {
+        if (!setComponentProperty<double >(comp, "period_max", buf_info.period_sim_max_)) {
+            return false;
+        }
+    }
+    else {
+        if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
+            return false;
+        }
+    }
+
+    buffer_rx_components_.push_back(comp);
+
+    return true;
 }
 
 bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::OutputBufferInfo& buf_info) {
@@ -565,22 +554,17 @@ bool SubsystemDeployer::deployOutputBufferIpcComponent(const common_behavior::Ou
 
     std::string name = buf_info.interface_alias_ + suffix;
 
-    if (buf_info.enable_ipc_) {
-        if (!dc_->loadComponent(name, type)) {
-            RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
-            return false;
-        }
-        RTT::TaskContext* comp = dc_->getPeer(name);
-        if (!setTriggerOnStart(comp, false)) {
-            return false;
-        }
-
-        buffer_tx_components_.push_back(comp);
-
-        return true;
+    if (!dc_->loadComponent(name, type)) {
+        RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+        return false;
     }
-    RTT::log(RTT::Error) << "component " << type << " should not have IPC buffer" << RTT::endlog();
-    return false;
+    RTT::TaskContext* comp = dc_->getPeer(name);
+    if (!setTriggerOnStart(comp, false)) {
+        return false;
+    }
+    buffer_tx_components_.push_back(comp);
+
+    return true;
 }
 
 bool SubsystemDeployer::deployBufferSplitComponent(const common_behavior::BufferInfo& buf_info) {
@@ -709,10 +693,8 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 */
     for (int i = 0; i < buffers.size(); ++i) {
         const common_behavior::InputBufferInfo& buf_info = buffers[i];
-        if (buf_info.enable_ipc_) {
-            if (!deployInputBufferIpcComponent(buf_info)) {
-                return false;
-            }
+        if (!deployInputBufferIpcComponent(buf_info)) {
+            return false;
         }
 
         if (!deployBufferSplitComponent(buf_info)) {
@@ -721,54 +703,34 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 
         const std::string alias = buf_info.interface_alias_;
 
-        if (buf_info.enable_ipc_) {
-            // connect Split-Rx ports
-//            if (!dc_->connect(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
-            if (!connectPorts(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << alias << RTT::endlog();
-                return false;
-            }
+        // connect Split-Rx ports
+//           if (!dc_->connect(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+        if (!connectPorts(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+            RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << alias << RTT::endlog();
+            return false;
+        }
 
-            // connect Rx to master_component
-            if (!connectPorts(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
-                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
-                return false;
-            }
+        // connect Rx to master_component
+        if (!connectPorts(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
+            RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
+            return false;
+        }
 
 //            if (!connectPorts(std::string("X.") + alias + "_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
 //                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
 //                return false;
 //            }
 
-            if (buf_info.event_) {
-                // connect Rx no_data to master_component
-                if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
-                    RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
-                    return false;
-                }
+        if (buf_info.event_) {
+            // connect Rx no_data to master_component
+            if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
+                RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
+                return false;
+            }
 //                if (!connectPorts("X.trigger_OUTPORT", std::string("master_component.trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
 //                    RTT::log(RTT::Error) << "could not connect ports Rx-master_component trigger: " << alias << RTT::endlog();
 //                    return false;
 //                }
-            }
-        }
-        else {
-            // there is no Rx component, so create additional Concate component
-            if (!deployBufferConcateComponent(buf_info)) {
-                return false;
-            }
-
-            // connect Split-Concate ports
-            if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << alias << RTT::endlog();
-                return false;
-            }
-
-            // connect Concate to master_component
-            if (!connectPorts(alias + "Concate.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Concate-master_component: " << alias << RTT::endlog();
-                return false;
-            }
         }
     }
     return true;
@@ -777,10 +739,8 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers) {
     for (int i = 0; i < buffers.size(); ++i) {
         const common_behavior::OutputBufferInfo& buf_info = buffers[i];
-        if (buf_info.enable_ipc_) {
-            if (!deployOutputBufferIpcComponent(buf_info)) {
-                return false;
-            }
+        if (!deployOutputBufferIpcComponent(buf_info)) {
+            return false;
         }
 
         if (!deployBufferConcateComponent(buf_info)) {
@@ -789,23 +749,9 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
 
         const std::string alias = buf_info.interface_alias_;
 
-        if (buf_info.enable_ipc_) {
-            if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
-                return false;
-            }
-        }
-        else {
-            // there is no Tx component, so create additional Split component
-            if (!deployBufferSplitComponent(buf_info)) {
-                return false;
-            }
-
-            // connect Split-Concate ports
-            if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
-                RTT::log(RTT::Error) << "could not connect ports Split-Concate: " << alias << RTT::endlog();
-                return false;
-            }
+        if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
+            RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
+            return false;
         }
     }
     return true;
