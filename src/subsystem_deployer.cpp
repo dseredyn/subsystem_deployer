@@ -27,8 +27,6 @@
 
 #include "subsystem_deployer/subsystem_deployer.h"
 
-//#include "common_interfaces/message_concate.h"
-
 #include <rtt/rtt-config.h>
 #include <rtt/os/main.h>
 #include <rtt/RTT.hpp>
@@ -1304,10 +1302,9 @@ bool SubsystemDeployer::configure() {
         return false;
     }
 
-    const std::vector<std::pair<std::string, std::string > >& latched_connections = master_service_->getLatchedConnections();
-    for (int i = 0; i < latched_connections.size(); ++i) {
-        if (!scheme_latchConnections(latched_connections[i].first, latched_connections[i].second, true)) {
-            RTT::log(RTT::Error) << "Could not latch connections from \'" << latched_connections[i].first << "\' and \'" << latched_connections[i].second << "\'" << RTT::endlog();
+    for (int i = 0; i < latched_connections_.size(); ++i) {
+        if (!scheme_latchConnections(latched_connections_[i].first, latched_connections_[i].second, true)) {
+            RTT::log(RTT::Error) << "Could not latch connections from \'" << latched_connections_[i].first << "\' and \'" << latched_connections_[i].second << "\'" << RTT::endlog();
             return false;
         }
     }
@@ -1585,6 +1582,25 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             ros_stream_elem = ros_stream_elem->NextSiblingElement("ros_stream");
         }
 
+        //
+        // <latched_connections>
+        //
+        const TiXmlElement *latched_connections_elem = root->FirstChildElement("latched_connections");
+        if (latched_connections_elem) {
+            const TiXmlElement *components_elem = latched_connections_elem->FirstChildElement("components");
+            while (components_elem) {
+                const char *from_attr = components_elem->Attribute("from");
+                const char *to_attr = components_elem->Attribute("to");
+                if (from_attr && to_attr) {
+                    latched_connections_.push_back(std::pair<std::string, std::string >(from_attr, to_attr));
+                }
+                else {
+                    RTT::log(RTT::Error) << "wrong latched_connections definition: missing \'from\' or \'to\' attribute" << RTT::endlog();
+                    return false;
+                }
+                components_elem = components_elem->NextSiblingElement("components");
+            }
+        }
     }
     return true;
 }

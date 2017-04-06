@@ -145,6 +145,8 @@ private:
     std::list<std::pair<std::string, std::string> > ros_streams_;
     std::map<std::string, std::vector<std::string> > component_services_;
 
+    std::vector<std::pair<std::string, std::string > > latched_connections_;
+
     bool is_initialized_;
 };
 
