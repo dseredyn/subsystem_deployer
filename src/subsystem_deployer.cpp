@@ -470,6 +470,7 @@ bool SubsystemDeployer::setChannelsNames() {
         }
 
         if (!setComponentProperty<std::string >(comp, "channel_name", ch_name)) {
+            RTT::log(RTT::Error) << "Could not set channel name for i/o buffer \'" << name << "\', \'" << ch_name << "\'" << RTT::endlog();
             return false;
         }
     }
@@ -490,6 +491,25 @@ bool SubsystemDeployer::setChannelsNames() {
         }
     }
 */
+
+    RTT::TaskContext* comp_y = dc_->getPeer("Y");
+    for (int i = 0; i < lowerOutputBuffers_.size(); ++i) {
+        const std::string& alias = lowerOutputBuffers_[i].interface_alias_;
+        const std::string& ch_name = getChannelName(alias);
+        if (!setComponentProperty<std::string >(comp_y, std::string("channel_name_") + alias, ch_name)) {
+            RTT::log(RTT::Error) << "Could not set channel name for i/o buffer \'" << alias << "\', \'" << ch_name << "\'" << RTT::endlog();
+            return false;
+        }
+    }
+    for (int i = 0; i < upperOutputBuffers_.size(); ++i) {
+        const std::string& alias = upperOutputBuffers_[i].interface_alias_;
+        const std::string& ch_name = getChannelName(alias);
+        if (!setComponentProperty<std::string >(comp_y, std::string("channel_name_") + alias, ch_name)) {
+            RTT::log(RTT::Error) << "Could not set channel name for i/o buffer \'" << alias << "\', \'" << ch_name << "\'" << RTT::endlog();
+            return false;
+        }
+    }
+
     for (int i = 0; i < buffer_tx_components_.size(); ++i) {
         RTT::TaskContext* comp = buffer_tx_components_[i];
         std::string name = comp->getName();
@@ -502,9 +522,12 @@ bool SubsystemDeployer::setChannelsNames() {
         }
 
         if (!setComponentProperty<std::string >(comp, "channel_name", ch_name)) {
+            RTT::log(RTT::Error) << "Could not set channel name for i/o buffer \'" << name << "\', \'" << ch_name << "\'" << RTT::endlog();
             return false;
         }
     }
+
+    return true;
 }
 
 bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info) {
@@ -528,17 +551,17 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
     if (!setComponentProperty<double >(comp, "period_min", buf_info.period_min_)) {
         return false;
     }
-    if (!setComponentProperty<double >(comp, "period_avg", buf_info.period_avg_)) {
+    if (!setComponentProperty<double >(comp, "next_timeout", buf_info.next_timeout_)) {
         return false;
     }
 
     if (use_sim_time_) {
-        if (!setComponentProperty<double >(comp, "period_max", buf_info.period_sim_max_)) {
+        if (!setComponentProperty<double >(comp, "first_timeout", buf_info.first_timeout_sim_)) {
             return false;
         }
     }
     else {
-        if (!setComponentProperty<double >(comp, "period_max", buf_info.period_max_)) {
+        if (!setComponentProperty<double >(comp, "first_timeout", buf_info.first_timeout_)) {
             return false;
         }
     }
@@ -721,7 +744,7 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 //                return false;
 //            }
 
-        if (buf_info.event_) {
+        if (buf_info.event_no_data_) {
             // connect Rx no_data to master_component
             if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
                 RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
@@ -737,11 +760,25 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 }
 
 bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers) {
-    for (int i = 0; i < buffers.size(); ++i) {
-        const common_behavior::OutputBufferInfo& buf_info = buffers[i];
-        if (!deployOutputBufferIpcComponent(buf_info)) {
+    RTT::TaskContext* comp = dc_->getPeer("Y");
+
+    if (!comp) {
+        std::string type = getSubsystemName() + "_types::OutputBuffers";
+        if (!dc_->loadComponent("Y", type)) {
+            RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
             return false;
         }
+        comp = dc_->getPeer("Y");
+        if (!setTriggerOnStart(comp, true)) {
+            return false;
+        }
+    }
+
+    for (int i = 0; i < buffers.size(); ++i) {
+        const common_behavior::OutputBufferInfo& buf_info = buffers[i];
+//        if (!deployOutputBufferIpcComponent(buf_info)) {
+//            return false;
+//        }
 
         if (!deployBufferConcateComponent(buf_info)) {
             return false;
@@ -749,8 +786,12 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
 
         const std::string alias = buf_info.interface_alias_;
 
-        if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
-            RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
+//        if (!connectPorts(alias + "Concate.msg_OUTPORT", alias + "Tx.msg_INPORT", ConnPolicy())) {
+//            RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
+//            return false;
+//        }
+        if (!connectPorts(alias + "Concate.msg_OUTPORT", std::string("Y.") + alias + "_INPORT", ConnPolicy())) {
+            RTT::log(RTT::Error) << "could not connect ports Concate-Y: " << alias << RTT::endlog();
             return false;
         }
     }
@@ -1058,9 +1099,19 @@ bool SubsystemDeployer::isSubsystemBuffer(const std::string& port_name) const {
         if (buffer_rx_components_[i]->getName() == comp_name) {
             return true;
         }
+    }
+    for (int i = 0; i < buffer_tx_components_.size(); ++i) {
         if (buffer_tx_components_[i]->getName() == comp_name) {
             return true;
         }
+    }
+
+    if (comp_name == "X") {
+        return true;
+    }
+
+    if (comp_name == "Y") {
+        return true;
     }
 
     return false;
@@ -1230,6 +1281,7 @@ bool SubsystemDeployer::configure() {
     conman_peers.insert(conman_peers.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
     conman_peers.insert(conman_peers.end(), buffer_split_components_.begin(), buffer_split_components_.end());
     conman_peers.insert(conman_peers.end(), buffer_concate_components_.begin(), buffer_concate_components_.end());
+    conman_peers.push_back(dc_->getPeer("Y"));
     std::vector<bool > conman_peers_running(conman_peers.size(), false);
     for (int i = 0; i < conman_peers.size(); ++i) {
         if (conman_peers[i]->isRunning()) {
