@@ -480,7 +480,23 @@ bool SubsystemDeployer::setChannelsNames() {
             return false;
         }
     }
-
+/*
+    RTT::TaskContext* comp = dc_->getPeer("X");
+    for (int i = 0; i < lowerInputBuffers_.size(); ++i) {
+        const std::string& alias = lowerInputBuffers_[i].interface_alias_;
+        const std::string& ch_name = getChannelName(alias);
+        if (!setComponentProperty<std::string >(comp, std::string("channel_name_") + alias, ch_name)) {
+            return false;
+        }
+    }
+    for (int i = 0; i < upperInputBuffers_.size(); ++i) {
+        const std::string& alias = upperInputBuffers_[i].interface_alias_;
+        const std::string& ch_name = getChannelName(alias);
+        if (!setComponentProperty<std::string >(comp, std::string("channel_name_") + alias, ch_name)) {
+            return false;
+        }
+    }
+*/
     for (int i = 0; i < buffer_tx_components_.size(); ++i) {
         RTT::TaskContext* comp = buffer_tx_components_[i];
         std::string name = comp->getName();
@@ -676,6 +692,21 @@ bool SubsystemDeployer::connectPorts(const std::string& from, const std::string&
 }
 
 bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers) {
+/*
+    RTT::TaskContext* comp = dc_->getPeer("X");
+
+    if (!comp) {
+        std::string type = getSubsystemName() + "_types::InputBuffers";
+        if (!dc_->loadComponent("X", type)) {
+            RTT::log(RTT::Error) << "Unable to load component " << type << RTT::endlog();
+            return false;
+        }
+        comp = dc_->getPeer("X");
+        if (!setTriggerOnStart(comp, true)) {
+            return false;
+        }
+    }
+*/
     for (int i = 0; i < buffers.size(); ++i) {
         const common_behavior::InputBufferInfo& buf_info = buffers[i];
         if (buf_info.enable_ipc_) {
@@ -704,12 +735,21 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
                 return false;
             }
 
+//            if (!connectPorts(std::string("X.") + alias + "_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
+//                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
+//                return false;
+//            }
+
             if (buf_info.event_) {
                 // connect Rx no_data to master_component
                 if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
                     RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
                     return false;
                 }
+//                if (!connectPorts("X.trigger_OUTPORT", std::string("master_component.trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
+//                    RTT::log(RTT::Error) << "could not connect ports Rx-master_component trigger: " << alias << RTT::endlog();
+//                    return false;
+//                }
             }
         }
         else {
@@ -1369,6 +1409,7 @@ bool SubsystemDeployer::configure() {
     for (int i = 0; i < buffer_rx_components_.size(); ++i) {
         buffer_rx_components_[i]->trigger();
     }
+//    dc_->getPeer("X")->trigger();
 
     Logger::log() << Logger::Info << "OK" << Logger::endl;
 
