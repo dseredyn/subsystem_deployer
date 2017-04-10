@@ -1078,6 +1078,56 @@ RTT::base::PortInterface* SubsystemDeployer::strToPort(const std::string &path) 
     return tc->ports()->getPort( path.substr(first_dot+1, std::string::npos) );
 }
 
+bool SubsystemDeployer::connectionExists(const std::string& from, const std::string& to) const {
+    RTT::base::PortInterface* pi_f = strToPort(from);
+    RTT::base::PortInterface* pi_t = strToPort(from);
+    if (!pi_f || !pi_t) {
+        return false;
+    }
+
+
+    Logger::log() << Logger::Info << "port \'" << from << "\' is connected to:" << Logger::endl;
+
+    std::list<internal::ConnectionManager::ChannelDescriptor> chns = pi_f->getManager()->getConnections();
+//      std::list<internal::ConnectionManager::ChannelDescriptor>::iterator k;
+    for(auto k = chns.begin(); k != chns.end(); k++) {
+        base::ChannelElementBase::shared_ptr bs = k->get<1>();
+/*        std::string comp_in, port_in;
+        if(bs->getInputEndPoint()->getPort() != 0) {
+          if (bs->getInputEndPoint()->getPort()->getInterface() != 0 ) {
+            comp_in = bs->getInputEndPoint()->getPort()->getInterface()->getOwner()->getName();
+          }
+          else{
+            comp_in = "free input ports";
+          }
+          port_in = bs->getInputEndPoint()->getPort()->getName();
+        }
+        log(Debug) << "Connection starts at port: " << port_in << endlog();
+        log(Debug) << "Connection starts at component: " << comp_in << endlog();
+        std::string comp_out, port_out;
+*/
+        if(bs->getOutputEndPoint()->getPort() != 0) {
+            Logger::log() << Logger::Info << "    \'" << bs->getOutputEndPoint()->getPort()->getName() << "\'" << Logger::endl;
+
+            if (bs->getOutputEndPoint()->getPort()->getInterface() != 0 ) {
+                std::string comp_out = bs->getOutputEndPoint()->getPort()->getInterface()->getOwner()->getName();
+                std::string port_out = bs->getOutputEndPoint()->getPort()->getName();
+                if (comp_out + "." + port_out == to) {
+                    return true;
+                }
+//                if (bs->getOutputEndPoint()->getPort() == pi_t) {
+//                    return true;
+//                }
+            }
+//            else{
+//            comp_out = "free output ports";
+//            }
+//          port_out = bs->getOutputEndPoint()->getPort()->getName();
+        }
+    }
+    return false;
+}
+
 bool SubsystemDeployer::isInputPort(const std::string &path) const {
     return dynamic_cast<RTT::base::InputPortInterface*>(strToPort(path)) != NULL;
 }
@@ -1184,6 +1234,10 @@ bool SubsystemDeployer::configure() {
 
     // try connecting ports before components configuration
     for (std::list<Connection >::iterator it = connections_to_join.begin(); it != connections_to_join.end(); ) {
+        if (connectionExists(it->from, it->to)) {
+            ++it;
+            continue;
+        }
         if (isSubsystemBuffer(it->from)) {
             RTT::log(RTT::Error) << "Could not connect ports \'" << it->from << "\' and \'"
                 << it->to << "\'. Port \'" << it->from << "\' is subsystem i/o buffer." << RTT::endlog();
@@ -1244,6 +1298,9 @@ bool SubsystemDeployer::configure() {
 
     // connect remaining ports
     for (std::list<Connection >::iterator it = connections_to_join.begin(); it != connections_to_join.end(); ++it) {
+        if (connectionExists(it->from, it->to)) {
+            continue;
+        }
         if (!isInputPort(it->to)) {
             RTT::log(RTT::Error) << "port \'" << it->to << "\' is not an input port" << RTT::endlog();
             return false;
@@ -1427,9 +1484,9 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             Logger::log() << Logger::Error << "no root element" << Logger::endl;
             return false;
         }
-        if (strcmp(root->Value(), "subsystem") != 0) {
+        if (strcmp(root->Value(), "subsystem_configuration") != 0) {
             Logger::log() << Logger::Error << "wrong root element: \'" << std::string(root->Value())
-                << "\', should be: \'subsystem\'" << Logger::endl;
+                << "\', should be: \'subsystem_configuration\'" << Logger::endl;
             return false;
         }
 
@@ -1438,13 +1495,13 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
         //
         const TiXmlElement *import_elem = root->FirstChildElement("import");
         while (import_elem) {
-            const char *import_text = import_elem->GetText();
-            if (!import_text) {
+            const char* import_package_elem = import_elem->Attribute("package");
+            if (!import_package_elem) {
                 Logger::log() << Logger::Error << "wrong value of \'import\' element" << Logger::endl;
                 return false;
             }
-            if (!import(import_text)) {
-                Logger::log() << Logger::Error << "could not import \'" << std::string(import_text) << "\'" << Logger::endl;
+            if (!import(import_package_elem)) {
+                Logger::log() << Logger::Error << "could not import \'" << std::string(import_package_elem) << "\'" << Logger::endl;
                 return false;
             }
             import_elem = import_elem->NextSiblingElement("import");
@@ -1488,8 +1545,9 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
 
             const TiXmlElement *service_elem = root->FirstChildElement("service");
             while (service_elem) {
-                const char *service_text = service_elem->GetText();
-                if (!service_text) {
+                const char* service_name_elem = service_elem->Attribute("package");
+
+                if (!service_name_elem) {
                     RTT::log(RTT::Error) << "wrong service definition for component\'" << std::string(name_attr) << "\'" << RTT::endlog();
                     return false;
                 }
@@ -1498,7 +1556,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                 if (it == component_services_.end()) {
                     it = component_services_.insert( std::make_pair<std::string, std::vector<std::string>>(std::string(name_attr), std::vector<std::string>()) ).first;
                 }
-                it->second.push_back( std::string(service_text) );
+                it->second.push_back( std::string(service_name_elem) );
                 service_elem = service_elem->NextSiblingElement("service");
             }
 

@@ -75,6 +75,7 @@ private:
 
     RTT::base::PortInterface* strToPort(const std::string &path) const;
     bool connectPorts(const std::string& from, const std::string& to, const RTT::ConnPolicy& conn);
+    bool connectionExists(const std::string& from, const std::string& to) const;
 //    void event(RTT::base::PortInterface *pi);
 
     bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
