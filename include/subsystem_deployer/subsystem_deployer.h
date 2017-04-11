@@ -112,7 +112,7 @@ private:
     RTT::OperationCaller<bool(const std::string&)> ros_import_;
     boost::shared_ptr<common_behavior::MasterServiceRequester > master_service_;
 
-    std::vector<shared_ptr<common_behavior::PortConverterBase > > port_converters_;
+    std::vector<RTT::TaskContext* > converter_components_;
 
     std::vector<RTT::TaskContext* > buffer_rx_components_;
     std::vector<RTT::TaskContext* > buffer_tx_components_;

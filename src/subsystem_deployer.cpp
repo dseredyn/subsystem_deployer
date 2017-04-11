@@ -638,8 +638,7 @@ void SubsystemDeployer::event(RTT::base::PortInterface *pi) {
 }
 */
 bool SubsystemDeployer::connectPorts(const std::string& from, const std::string& to, const ConnPolicy& cp) {
-//    if (!dc_->connect(from, to, cp)) {
-//    }
+    static int counter = 0;
 
     if (dc_->connect(from, to, cp)) {
         return true;
@@ -656,44 +655,31 @@ bool SubsystemDeployer::connectPorts(const std::string& from, const std::string&
             return false;
         }
 
-        auto converters = common_behavior::PortConverterFactory::Instance()->getPortConverters();
-        for (auto it = converters.begin(); it != converters.end(); ++it) {
-            auto conv = common_behavior::PortConverterFactory::Instance()->Create( it->first );
-            if (conv->isCompatible(pa, pb)) {
-                if (conv->connectPorts(pa, pb, cp)) {
-                    port_converters_.push_back(conv);
-                    return true;
-                }
-            }
-        }
-/*
-        RTT::OutputPort<double > *port_a = dynamic_cast<RTT::OutputPort<double >* >(pa);
-        RTT::InputPort<Eigen::Matrix<double, 1, 1> > *port_b = dynamic_cast<RTT::InputPort<Eigen::Matrix<double, 1, 1> >* >(pb);
-        if (port_a && port_b) {
-            std::string port_b_name = port_b->getName();
-            RTT::DataFlowInterface *dfi_b = port_b->getInterface();
+        std::string conv_type = common_behavior::PortConverterFactory::Instance()->getPortConverter(pa, pb);
 
-            // from -> to_in, to_in_out -> to
-            RTT::InputPort<double > *new_port_b = new RTT::InputPort<double >(port_b_name + "_in");
-            RTT::OutputPort<Eigen::Matrix<double, 1, 1> > *new_port_b_out = new RTT::OutputPort<Eigen::Matrix<double, 1, 1> >(port_b_name + "_in_out");
-            dfi_b->getOwner()->ports()->addEventPort( *new_port_b, boost::bind( &SubsystemDeployer::event, this, _1 ) );
-            dfi_b->getOwner()->ports()->addLocalPort( *new_port_b_out);
-            if (!dc_->connect(to + "_in_out", to, cp)) {
-                RTT::log(RTT::Info) << "could not connect: " << (to + "_in_out") << ", " << (to) << RTT::endlog();
-            }
-            if (!dc_->connect(from, to + "_in", cp)) {
-                RTT::log(RTT::Info) << "could not connect: " << from << ", " << (to + "_in") << RTT::endlog();
-            }
+        std::ostringstream strs;
+        strs << counter;
+        counter++;
 
-            RTT::log(RTT::Info) << "added port conversion: " << from << ", " << to << RTT::endlog();
-            return true;
+        std::string comp_name = std::string("conv") + strs.str();
+        if (!dc_->loadComponent(comp_name, conv_type)) {
+            RTT::log(RTT::Error) << "Unable to load component " << conv_type << RTT::endlog();
+            return false;
         }
-*/
-//        const types::TypeInfo *ti = pi->getTypeInfo();
-//        RTT::log(RTT::Info) << "port: " << from << ", type: " << ti->getTypeName() << ", is_eigen: " << (ptr?"true":"false") << RTT::endlog();
+
+        if (!dc_->connect(from, comp_name + ".data_INPORT", cp)) {
+            RTT::log(RTT::Error) << "Unable to connect: " << from << " and " << comp_name << ".data_INPORT" << RTT::endlog();
+            return false;
+        }
+        if (!dc_->connect(comp_name + ".data_OUTPORT", to, cp)) {
+            RTT::log(RTT::Error) << "Unable to connect: " << comp_name << ".data_OUTPORT" << " and " << to << RTT::endlog();
+            return false;
+        }
+
+        converter_components_.push_back(dc_->getPeer(comp_name));
+        return true;
     }
     return false;
-//    return dc_->connect(from, to, cp);
 }
 
 bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers) {
@@ -1447,6 +1433,10 @@ bool SubsystemDeployer::configure() {
         if (it != components_initially_running_.end() || conman_peers_running[i]) {
             conman_peers[i]->start();
         }
+    }
+
+    for (int i = 0; i < converter_components_.size(); ++i) {
+        converter_components_[i]->start();
     }
 
     RTT::Activity* master_activity = dynamic_cast<RTT::Activity* >(master_component_->getActivity());
