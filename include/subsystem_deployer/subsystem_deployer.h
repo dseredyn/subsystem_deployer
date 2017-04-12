@@ -126,8 +126,6 @@ private:
 
     boost::shared_ptr<SubsystemDeployerRosServiceBase > ros_service;
 
-    RTT::Service::shared_ptr dot_graph_service_;
-
     class Connection {
     public:
         Connection(const std::string& from, const std::string& to, const std::string& name, const std::string& latex) {
