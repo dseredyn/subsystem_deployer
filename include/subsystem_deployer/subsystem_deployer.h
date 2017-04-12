@@ -33,7 +33,6 @@
 #include <ocl/DeploymentComponent.hpp>
 #include "common_behavior/master_service_requester.h"
 #include "common_behavior/master_service.h"
-#include "common_behavior/abstract_port_converter.h"
 
 class SubsystemDeployerRosServiceBase {};
 
@@ -71,12 +70,13 @@ public:
     const std::string& getConnectionNameLatex(const std::string& from, const std::string& to) const;
     const std::string& getComponentNameLatex(const std::string& name) const;
 
+    bool isConverter(const std::string& name) const;
+
 private:
 
     RTT::base::PortInterface* strToPort(const std::string &path) const;
     bool connectPorts(const std::string& from, const std::string& to, const RTT::ConnPolicy& conn);
     bool connectionExists(const std::string& from, const std::string& to) const;
-//    void event(RTT::base::PortInterface *pi);
 
     bool deployInputBufferIpcComponent(const common_behavior::InputBufferInfo& buf_info);
     bool deployOutputBufferIpcComponent(const common_behavior::OutputBufferInfo& buf_info);

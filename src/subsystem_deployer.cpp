@@ -26,6 +26,7 @@
 */
 
 #include "subsystem_deployer/subsystem_deployer.h"
+#include "common_behavior/abstract_port_converter.h"
 
 #include <rtt/rtt-config.h>
 #include <rtt/os/main.h>
@@ -239,6 +240,7 @@ void scanService(Service::shared_ptr sv)
             RTT::TaskContext* tc = components[i];
             subsystem_msgs::ComponentInfo cinf;
             cinf.name = tc->getName();
+            cinf.is_converter = d_.isConverter(cinf.name);
             cinf.latex = d_.getComponentNameLatex(tc->getName());
             std::vector<RTT::base::PortInterface* > ports = tc->ports()->getPorts();
             for (int ip = 0; ip < ports.size(); ++ip) {
@@ -637,6 +639,16 @@ void SubsystemDeployer::event(RTT::base::PortInterface *pi) {
     dynamic_cast<RTT::OutputPort<Eigen::Matrix<double, 1, 1> >* >(out)->write(Eigen::Matrix<double, 1, 1>(val));
 }
 */
+
+bool SubsystemDeployer::isConverter(const std::string& name) const {
+    for (int i = 0; i < converter_components_.size(); ++i) {
+        if (converter_components_[i]->getName() == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool SubsystemDeployer::connectPorts(const std::string& from, const std::string& to, const ConnPolicy& cp) {
     static int counter = 0;
 
@@ -675,6 +687,10 @@ bool SubsystemDeployer::connectPorts(const std::string& from, const std::string&
             RTT::log(RTT::Error) << "Unable to connect: " << comp_name << ".data_OUTPORT" << " and " << to << RTT::endlog();
             return false;
         }
+
+        // set name of both new connections the same as the old one
+        connections_.push_back( Connection(from, comp_name + ".data_INPORT", getConnectionName(from, to), getConnectionNameLatex(from, to)) );
+        connections_.push_back( Connection(comp_name + ".data_OUTPORT", to, getConnectionName(from, to), getConnectionNameLatex(from, to)) );
 
         converter_components_.push_back(dc_->getPeer(comp_name));
         return true;
@@ -1177,21 +1193,13 @@ bool SubsystemDeployer::configure() {
     }
 
     // disable Trigger On Start for all components
-    const std::vector<RTT::TaskContext* > all_components = getAllComponents();
+    std::vector<RTT::TaskContext* > all_components = getAllComponents();
     for (int i = 0; i < all_components.size(); ++i) {
         setTriggerOnStart(all_components[i], false);
     }
 
-
     const std::vector<RTT::TaskContext* > core_components = getCoreComponents();
     const std::vector<RTT::TaskContext* > non_core_components = getNonCoreComponents();
-
-    // add all peers to diagnostics component
-    for (int i = 0; i < all_components.size(); ++i) {
-        if (all_components[i]->getName() != diag_component_->getName()) {
-            diag_component_->addPeer(all_components[i]);
-        }
-    }
 
     Logger::log() << Logger::Info << "[before master_component configure] scheme_->getActivity(): "
         << (scheme_->getActivity()) << Logger::endl;
@@ -1200,6 +1208,9 @@ bool SubsystemDeployer::configure() {
     // master component can be configured after all peers are added to scheme
     for (int i = 0; i < core_components.size(); ++i) {
         if (core_components[i] == master_component_) {
+            continue;
+        }
+        if (core_components[i] == diag_component_) {
             continue;
         }
         if (!core_components[i]->isConfigured()) {
@@ -1269,6 +1280,9 @@ bool SubsystemDeployer::configure() {
         if (non_core_components[i] == master_component_) {
             continue;
         }
+        if (non_core_components[i] == diag_component_) {
+            continue;
+        }
         loadROSParam(non_core_components[i]);
         if (!non_core_components[i]->isConfigured()) {
             RTT::log(RTT::Info) << "loading ROS parameters for \'" << non_core_components[i]->getName() << "\'" << RTT::endlog();
@@ -1310,6 +1324,19 @@ bool SubsystemDeployer::configure() {
             RTT::log(RTT::Error) << "Unable to connect \'" << it->first << "\' and \'" << it->second << "\'" << RTT::endlog();
             return false;
         }
+    }
+
+    all_components = getAllComponents();
+    // add all peers to diagnostics component
+    for (int i = 0; i < all_components.size(); ++i) {
+        if (all_components[i]->getName() != diag_component_->getName()) {
+            diag_component_->addPeer(all_components[i]);
+        }
+    }
+
+    if (!diag_component_->configure()) {
+        RTT::log(RTT::Error) << "Unable to configure component " << diag_component_->getName() << RTT::endlog();
+        return false;
     }
 
     // initialize conman scheme
