@@ -825,6 +825,24 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
 
     dc_.reset(new OCL::DeploymentComponent(name_));
 
+
+
+    RTT::Activity* dc_activity = dynamic_cast<RTT::Activity* >(dc_->getActivity());
+    if (!dc_activity) {
+        Logger::log() << Logger::Warning << "Could not set scheduler for Deployment Component to ORO_SCHED_RT. Could not get Activity." << Logger::endl;
+    }
+    else {
+//        if (!master_activity->setScheduler(ORO_SCHED_RT)) {
+//            Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT." << Logger::endl;
+//        }
+        if (!dc_activity->setPriority(0)) {
+            Logger::log() << Logger::Warning << "Could not set priority for Deployment Component to 0." << Logger::endl;
+        }
+    }
+
+
+
+
     dc_->import("rtt_ros");
 
     RTT::Service::shared_ptr ros = RTT::internal::GlobalService::Instance()->getService("ros");
@@ -1470,15 +1488,45 @@ bool SubsystemDeployer::configure() {
     if (!master_activity) {
         Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT. Could not get Activity." << Logger::endl;
     }
-    else if (!master_activity->setScheduler(ORO_SCHED_RT)) {
-        Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT." << Logger::endl;
+    else {
+        if (!master_activity->setScheduler(ORO_SCHED_RT)) {
+            Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT." << Logger::endl;
+        }
+        if (!master_activity->setPriority(5)) {
+            Logger::log() << Logger::Warning << "Could not set priority for Master Component (scheduler: ORO_SCHED_RT)." << Logger::endl;
+        }
     }
 
-    // trigger all input buffers components
     for (int i = 0; i < buffer_rx_components_.size(); ++i) {
+        // rise priority of all input buffers components
+        RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_rx_components_[i]->getActivity());
+        if (!act) {
+            Logger::log() << Logger::Error << "Could not set scheduler and priority for component \'" << buffer_rx_components_[i]->getName() << "\'. Could not get Activity." << Logger::endl;
+            return false;
+        }
+
+        if (!act->setScheduler(ORO_SCHED_RT)) {
+            Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_rx_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
+        }
+        if (!act->setPriority(2)) {
+            Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_rx_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
+        }
+
+        // trigger all input buffers components
         buffer_rx_components_[i]->trigger();
     }
 //    dc_->getPeer("X")->trigger();
+
+    std::vector<RTT::TaskContext* > all_comp = getAllComponents();
+    for (int i = 0; i < all_comp.size(); ++i) {
+        RTT::Activity* act = dynamic_cast<RTT::Activity* >(all_comp[i]->getActivity());
+        if (act) {
+            Logger::log() << Logger::Info << "component \'" << all_comp[i]->getName() << "\', activity: \'" << act->getName() << "\', sched: " << act->getScheduler() << ", prio: " << act->getPriority() << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "component \'" << all_comp[i]->getName() << "\', activity: NULL" << Logger::endl;
+        }
+    }
 
     Logger::log() << Logger::Info << "OK" << Logger::endl;
 
