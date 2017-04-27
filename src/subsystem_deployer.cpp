@@ -1379,6 +1379,13 @@ bool SubsystemDeployer::configure() {
             Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << conman_peers[i]->getName() << Logger::endl;
             return true;
         }
+
+        // Disable passing port events to peers' master (i.e. scheme and master_component).
+        // The reason is that, the callback functions are defined in context of scheme peers.
+        std::map<std::string, std::string>::const_iterator it = components_ros_action_.find( conman_peers[i]->getName() );
+        if (it != components_ros_action_.end()) {
+            conman_peers[i]->engine()->setMaster(0);
+        }
     }
 
     //
