@@ -28,6 +28,7 @@
 #define COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_
 
 #include <vector>
+#include <set>
 #include <string>
 #include <boost/shared_ptr.hpp>
 #include <ocl/DeploymentComponent.hpp>
