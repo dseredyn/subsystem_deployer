@@ -566,6 +566,10 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
         }
     }
 
+    if (!setComponentProperty<std::string >(comp, "converter_name", buf_info.converter_name_)) {
+        return false;
+    }
+
     buffer_rx_components_.push_back(comp);
 
     return true;
@@ -739,21 +743,12 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
             return false;
         }
 
-//            if (!connectPorts(std::string("X.") + alias + "_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
-//                RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
-//                return false;
-//            }
-
         if (buf_info.event_no_data_) {
             // connect Rx no_data to master_component
-            if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.no_data_trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
+            if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.") + alias + "_no_data_INPORT_", ConnPolicy::data(ConnPolicy::LOCKED))) {
                 RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
                 return false;
             }
-//                if (!connectPorts("X.trigger_OUTPORT", std::string("master_component.trigger_INPORT_"), ConnPolicy::data(ConnPolicy::LOCKED))) {
-//                    RTT::log(RTT::Error) << "could not connect ports Rx-master_component trigger: " << alias << RTT::endlog();
-//                    return false;
-//                }
         }
     }
     return true;
