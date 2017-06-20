@@ -30,7 +30,7 @@
 
 #include <rtt/rtt-config.h>
 #include <rtt/os/main.h>
-#include <rtt/RTT.hpp>
+#include <rtt/ConnPolicy.hpp>
 #include <rtt/Logger.hpp>
 #include <rtt/internal/GlobalService.hpp>
 #include <ocl/TaskBrowser.hpp>
@@ -693,8 +693,8 @@ bool SubsystemDeployer::connectPorts(const std::string& from, const std::string&
         }
 
         // set name of both new connections the same as the old one
-        connections_.push_back( Connection(from, comp_name + ".data_INPORT", getConnectionName(from, to), getConnectionNameLatex(from, to)) );
-        connections_.push_back( Connection(comp_name + ".data_OUTPORT", to, getConnectionName(from, to), getConnectionNameLatex(from, to)) );
+        connections_.push_back( Connection(from, comp_name + ".data_INPORT", getConnectionName(from, to), getConnectionNameLatex(from, to), ConnPolicy()) );
+        connections_.push_back( Connection(comp_name + ".data_OUTPORT", to, getConnectionName(from, to), getConnectionNameLatex(from, to), cp) );
 
         converter_components_.push_back(dc_->getPeer(comp_name));
         return true;
@@ -1265,7 +1265,7 @@ bool SubsystemDeployer::configure() {
             continue;
         }
 
-        if (connectPorts(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
+        if (connectPorts(it->from, it->to, it->cp)) {
             connections_to_join.erase(it++);
         }
         else {
@@ -1324,7 +1324,7 @@ bool SubsystemDeployer::configure() {
             return false;
         }
 
-        if (!connectPorts(it->from, it->to, ConnPolicy::data(ConnPolicy::LOCKED))) {
+        if (!connectPorts(it->from, it->to, it->cp)) {
             RTT::log(RTT::Error) << "Unable to connect \'" << it->from << "\' and \'" << it->to << "\'" << RTT::endlog();
             return false;
         }
@@ -1663,6 +1663,58 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             const char *name_attr = connection_elem->Attribute("name");
             const char *latex_attr = connection_elem->Attribute("latex");
 
+            ConnPolicy cp = ConnPolicy();
+            const TiXmlElement *conn_policy_elem = connection_elem->FirstChildElement("conn_policy");
+            if (conn_policy_elem) {
+                const char *conn_policy_type_attr = conn_policy_elem->Attribute("type");
+                const char *conn_policy_size_attr = conn_policy_elem->Attribute("size");
+                if (!conn_policy_type_attr) {
+                    RTT::log(RTT::Error) << "'type' attribute must be defined for connection policy." << RTT::endlog();
+                    return false;
+                }
+
+                int buffer_size = 0;
+                if (conn_policy_size_attr) {
+                    if (sscanf(conn_policy_size_attr, "%d", &buffer_size) != 1) {
+                        RTT::log(RTT::Error) << "could not parse 'size' attribute connection policy." << RTT::endlog();
+                        return false;
+                    }
+                    if (buffer_size <= 0) {
+                        RTT::log(RTT::Error) << "wrong 'size' attribute in connection policy: " << buffer_size << RTT::endlog();
+                        return false;
+                    }
+                }
+
+                if (strcmp(conn_policy_type_attr, "data") == 0) {
+                    if (conn_policy_size_attr) {
+                        RTT::log(RTT::Error) << "'size' attribute should not be defined for 'data' connection policy." << RTT::endlog();
+                        return false;
+                    }
+                    // do nothing, this is the default connection policy
+                }
+                else if (strcmp(conn_policy_type_attr, "buffer") == 0) {
+                    if (!conn_policy_size_attr) {
+                        RTT::log(RTT::Error) << "'size' attribute must be defined for 'buffer' connection policy." << RTT::endlog();
+                        return false;
+                    }
+                    cp.type = ConnPolicy::BUFFER;
+                    cp.size = buffer_size;
+                }
+                else if (strcmp(conn_policy_type_attr, "circular_buffer") == 0) {
+                    if (!conn_policy_size_attr) {
+                        RTT::log(RTT::Error) << "'size' attribute must be defined for 'circular_buffer' connection policy." << RTT::endlog();
+                        return false;
+                    }
+                    cp.type = ConnPolicy::CIRCULAR_BUFFER;
+                    cp.size = buffer_size;
+                    RTT::log(RTT::Info) << "creating circular buffer of size " << buffer_size << "" << RTT::endlog();
+                }
+                else {
+                    RTT::log(RTT::Error) << "'type' attribute has wrong value: " << std::string(conn_policy_type_attr) << RTT::endlog();
+                    return false;
+                }
+            }
+
             if (from_attr && to_attr) {
                 std::string from = from_attr;
                 std::string to = to_attr;
@@ -1679,7 +1731,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                     latex = latex_attr;
                     //RTT::log(RTT::Info) << "connection " << from << "->" << to << "  has name: " << name << RTT::endlog();
                 }
-                connections_.push_back( Connection(from, to, name, latex) );
+                connections_.push_back( Connection(from, to, name, latex, cp) );
             }
             else {
                 RTT::log(RTT::Error) << "wrong connection definition: missing \'from\' or \'to\' attribute" << RTT::endlog();

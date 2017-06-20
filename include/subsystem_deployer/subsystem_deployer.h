@@ -30,6 +30,7 @@
 #include <vector>
 #include <set>
 #include <string>
+#include <rtt/RTT.hpp>
 #include <boost/shared_ptr.hpp>
 #include <ocl/DeploymentComponent.hpp>
 #include "common_behavior/master_service_requester.h"
@@ -129,13 +130,15 @@ private:
 
     class Connection {
     public:
-        Connection(const std::string& from, const std::string& to, const std::string& name, const std::string& latex) {
+        Connection(const std::string& from, const std::string& to, const std::string& name, const std::string& latex, const RTT::ConnPolicy& cp) {
             this->from = from;
             this->to = to;
             this->name = name;
             this->latex = latex;
+            this->cp = cp;
         }
         std::string from, to, name, latex;
+        RTT::ConnPolicy cp;
     };
     std::set<std::string > components_initially_running_;
     std::map<std::string, std::string > components_ros_action_;
