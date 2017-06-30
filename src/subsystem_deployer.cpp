@@ -474,6 +474,27 @@ bool SubsystemDeployer::setChannelsNames() {
             return false;
         }
     }
+
+    std::vector<std::vector<std::string > > vec = master_service_->getBufferGroups();
+    for (size_t i = 0; i < vec.size(); ++i) {
+        std::ostringstream comp_name;
+        comp_name << "X_" << i;
+
+        RTT::TaskContext* comp = dc_->getPeer(comp_name.str());
+        for (size_t j = 0; j < vec[i].size(); ++j) {
+            const std::string& ch_name = getChannelName(vec[i][j]);
+            if (ch_name.empty()) {
+                RTT::log(RTT::Error) << "Could not get name for i/o buffer \'" << vec[i][j] << "\'" << RTT::endlog();
+                return false;
+            }
+
+            if (!setComponentProperty<std::string >(comp, "channel_name_" + vec[i][j], ch_name)) {
+                RTT::log(RTT::Error) << "Could not set component \'" << comp->getName() << "\'property \'channel_name_" << vec[i][j] << "\'" << RTT::endlog();
+                return false;
+            }
+        }
+    }
+
 /*
     RTT::TaskContext* comp = dc_->getPeer("X");
     for (int i = 0; i < lowerInputBuffers_.size(); ++i) {
@@ -546,6 +567,9 @@ bool SubsystemDeployer::deployInputBufferIpcComponent(const common_behavior::Inp
     }
 
     if (!setComponentProperty<bool >(comp, "event", buf_info.event_)) {
+        return false;
+    }
+    if (!setComponentProperty<bool >(comp, "event_no_data", buf_info.event_no_data_)) {
         return false;
     }
     if (!setComponentProperty<double >(comp, "period_min", buf_info.period_min_)) {
@@ -720,9 +744,9 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 */
     for (int i = 0; i < buffers.size(); ++i) {
         const common_behavior::InputBufferInfo& buf_info = buffers[i];
-        if (!deployInputBufferIpcComponent(buf_info)) {
-            return false;
-        }
+//        if (!deployInputBufferIpcComponent(buf_info)) {
+//            return false;
+//        }
 
         if (!deployBufferSplitComponent(buf_info)) {
             return false;
@@ -738,18 +762,18 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
         }
 
         // connect Rx to master_component
-        if (!connectPorts(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
-            RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
-            return false;
-        }
+//        if (!connectPorts(alias + "Rx.msg_OUTPORT", std::string("master_component.") + alias + "_INPORT", ConnPolicy::data(ConnPolicy::LOCKED))) {
+//            RTT::log(RTT::Error) << "could not connect ports Rx-master_component: " << alias << RTT::endlog();
+//            return false;
+//        }
 
-        if (buf_info.event_no_data_) {
-            // connect Rx no_data to master_component
-            if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.") + alias + "_no_data_INPORT_", ConnPolicy::data(ConnPolicy::LOCKED))) {
-                RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
-                return false;
-            }
-        }
+//        if (buf_info.event_no_data_) {
+//            // connect Rx no_data to master_component
+//            if (!connectPorts(alias + "Rx.no_data_OUTPORT", std::string("master_component.") + alias + "_no_data_INPORT_", ConnPolicy::data(ConnPolicy::LOCKED))) {
+//                RTT::log(RTT::Error) << "could not connect ports Rx-master_component no_data: " << alias << RTT::endlog();
+//                return false;
+//            }
+//        }
     }
     return true;
 }
@@ -764,7 +788,7 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
             return false;
         }
         comp = dc_->getPeer("Y");
-        if (!setTriggerOnStart(comp, true)) {
+        if (!setTriggerOnStart(comp, false)) {      // TODO: verify
             return false;
         }
     }
@@ -787,6 +811,38 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
 //        }
         if (!connectPorts(alias + "Concate.msg_OUTPORT", std::string("Y.") + alias + "_INPORT", ConnPolicy())) {
             RTT::log(RTT::Error) << "could not connect ports Concate-Y: " << alias << RTT::endlog();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SubsystemDeployer::createBufferGroups(const std::vector<std::vector<std::string > > &vec) {
+    for (size_t i = 0; i < vec.size(); ++i) {
+        std::ostringstream comp_name;
+        comp_name << "X_" << i;
+
+        std::ostringstream comp_type;
+        comp_type << getSubsystemName() << "_types::InputBuffers" << i;
+
+        RTT::TaskContext* comp = dc_->getPeer(comp_name.str());
+
+        if (!comp) {
+            if (!dc_->loadComponent(comp_name.str(), comp_type.str())) {
+                RTT::log(RTT::Error) << "Unable to load component " << comp_type.str() << RTT::endlog();
+                return false;
+            }
+            comp = dc_->getPeer(comp_name.str());
+            if (!setTriggerOnStart(comp, true)) {
+                return false;
+            }
+            buffer_groups_components_.push_back(comp);
+        }
+
+        std::ostringstream port_name;
+        port_name << "master_component.buffer_group_" << i << "_INPORT";
+        if (!connectPorts(comp_name.str() + ".msg_OUTPORT", port_name.str(), ConnPolicy())) {
+            RTT::log(RTT::Error) << "could not connect ports X-master_component: " << i << RTT::endlog();
             return false;
         }
     }
@@ -874,6 +930,27 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     }
 
     //
+    // load timer component
+    //
+//    if (!dc_->loadComponent("timer","OCL::TimerComponent")) {
+//        Logger::log() << Logger::Error << "OCL::TimerComponent" << Logger::endl;
+//        return false;
+//    }
+
+//    timer_ = dc_->getPeer("timer");
+
+//    if (!setTriggerOnStart(timer_, false)) {
+//        return false;
+//    }
+
+//    if (!timer_) {
+//        Logger::log() << Logger::Error << "timer in NULL" << Logger::endl;
+//        return false;
+//    }
+//    timer_->setActivity( new RTT::Activity(ORO_SCHED_RT, 5, 0.0) );
+//    timer_->configure();
+
+    //
     // load conman scheme
     //
     if (!dc_->loadComponent("scheme","conman::Scheme")) {
@@ -891,7 +968,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         Logger::log() << Logger::Error << "scheme in NULL" << Logger::endl;
         return false;
     }
-    // scheme.loadService("conman_ros");    // TODO: check if this is needed
+    Logger::log() << Logger::Info << "configuring component 'scheme'" << Logger::endl;
     scheme_->configure();
 
     //
@@ -917,6 +994,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     // load subsystem-specific master service
     //
     if (!import(master_package_name)) {
+        Logger::log() << Logger::Error << "Master package could not be loaded!" << Logger::endl;
         return false;
     }
 
@@ -935,6 +1013,19 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         Logger::log() << Logger::Error << "Could not add Conman Scheme to Master Component" << Logger::endl;
         return false;
     }
+
+//    RTT::OperationCaller<bool(RTT::TaskContext*)> master_component_addTimer = master_component_->getOperation("addTimer");
+//    if (!master_component_addTimer.ready()) {
+//        Logger::log() << Logger::Error << "Could not get addTimer operation of Master Component" << Logger::endl;
+//        return false;
+//    }
+
+//    if (!master_component_addTimer(timer_)) {
+//        Logger::log() << Logger::Error << "Could not timer to Master Component" << Logger::endl;
+//        return false;
+//    }
+
+//    connectPorts("timer.timer_0", "master_component.timer_event_INPORT_", ConnPolicy());
 
     //
     // manage ports and ipc buffers
@@ -974,6 +1065,12 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         return false;
     }
 
+
+    if (!createBufferGroups(master_service_->getBufferGroups())) {
+        RTT::log(RTT::Error) << "Could not create buffer groups" << RTT::endlog();
+        return false;
+    }
+
     // outputs
     master_service_->getLowerOutputBuffers(lowerOutputBuffers_);
     master_service_->getUpperOutputBuffers(upperOutputBuffers_);
@@ -1003,7 +1100,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     //
     dc_->loadComponent("diag","DiagnosticComponent");
     diag_component_ = dc_->getPeer("diag");
-    if (!diag_component_->setPeriod(0.01)) {
+    if (!diag_component_->setPeriod(0.5)) {
         RTT::log(RTT::Error) << "could not change period of component \'" << diag_component_->getName() << RTT::endlog();
         return false;
     }
@@ -1050,6 +1147,8 @@ std::vector<RTT::TaskContext* > SubsystemDeployer::getCoreComponents() const {
     result.push_back(master_component_);
     result.push_back(scheme_);
     result.push_back(diag_component_);
+//    result.push_back(timer_);
+    result.insert(result.end(), buffer_groups_components_.begin(), buffer_groups_components_.end());
     result.insert(result.end(), buffer_rx_components_.begin(), buffer_rx_components_.end());
     result.insert(result.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
     result.insert(result.end(), buffer_split_components_.begin(), buffer_split_components_.end());
@@ -1158,6 +1257,11 @@ bool SubsystemDeployer::isSubsystemBuffer(const std::string& port_name) const {
     }
     std::string comp_name = port_name.substr(0, first_dot);
 
+    for (int i = 0; i < buffer_groups_components_.size(); ++i) {
+        if (buffer_groups_components_[i]->getName() == comp_name) {
+            return true;
+        }
+    }
     for (int i = 0; i < buffer_rx_components_.size(); ++i) {
         if (buffer_rx_components_[i]->getName() == comp_name) {
             return true;
@@ -1227,6 +1331,7 @@ bool SubsystemDeployer::configure() {
             continue;
         }
         if (!core_components[i]->isConfigured()) {
+            Logger::log() << Logger::Info << "configuring component '" << core_components[i]->getName() << "'" << Logger::endl;
             if (!core_components[i]->configure()) {
                 RTT::log(RTT::Error) << "Unable to configure component " << core_components[i]->getName() << RTT::endlog();
                 return false;
@@ -1299,6 +1404,7 @@ bool SubsystemDeployer::configure() {
         loadROSParam(non_core_components[i]);
         if (!non_core_components[i]->isConfigured()) {
             RTT::log(RTT::Info) << "loading ROS parameters for \'" << non_core_components[i]->getName() << "\'" << RTT::endlog();
+            Logger::log() << Logger::Info << "configuring component '" << non_core_components[i]->getName() << "'" << Logger::endl;
             if (!non_core_components[i]->configure()) {
                 RTT::log(RTT::Error) << "Unable to configure component " << non_core_components[i]->getName() << RTT::endlog();
                 return false;
@@ -1347,6 +1453,7 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+    Logger::log() << Logger::Info << "configuring component '" << diag_component_->getName() << "'" << Logger::endl;
     if (!diag_component_->configure()) {
         RTT::log(RTT::Error) << "Unable to configure component " << diag_component_->getName() << RTT::endlog();
         return false;
@@ -1399,6 +1506,7 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+    Logger::log() << Logger::Info << "configuring component '" << master_component_->getName() << "'" << Logger::endl;
     master_component_->configure();
 
     // connect ROS actions
@@ -1497,6 +1605,25 @@ bool SubsystemDeployer::configure() {
         if (!master_activity->setPriority(5)) {
             Logger::log() << Logger::Warning << "Could not set priority for Master Component (scheduler: ORO_SCHED_RT)." << Logger::endl;
         }
+    }
+
+    for (int i = 0; i < buffer_groups_components_.size(); ++i) {
+        // rise priority of all input buffers components
+        RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_groups_components_[i]->getActivity());
+        if (!act) {
+            Logger::log() << Logger::Error << "Could not set scheduler and priority for component \'" << buffer_groups_components_[i]->getName() << "\'. Could not get Activity." << Logger::endl;
+            return false;
+        }
+
+        if (!act->setScheduler(ORO_SCHED_RT)) {
+            Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_groups_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
+        }
+        if (!act->setPriority(2)) {
+            Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_groups_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
+        }
+
+        // trigger all input buffers components
+        buffer_groups_components_[i]->trigger();
     }
 
     for (int i = 0; i < buffer_rx_components_.size(); ++i) {

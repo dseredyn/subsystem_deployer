@@ -86,6 +86,7 @@ private:
     bool deployBufferConcateComponent(const common_behavior::BufferInfo& buf_info);
     bool createInputBuffers(const std::vector<common_behavior::InputBufferInfo >& buffers);
     bool createOutputBuffers(const std::vector<common_behavior::OutputBufferInfo >& buffers);
+    bool createBufferGroups(const std::vector<std::vector<std::string > > &vec);
     bool isInputPort(const std::string &path) const;
     bool isOutputPort(const std::string &path) const;
     bool isSubsystemBuffer(const std::string& port_name) const;
@@ -101,6 +102,7 @@ private:
     RTT::TaskContext* scheme_;
     RTT::TaskContext* master_component_;
     RTT::TaskContext* diag_component_;
+    RTT::TaskContext* timer_;
 
     bool use_sim_time_;
 
@@ -120,6 +122,8 @@ private:
     std::vector<RTT::TaskContext* > buffer_tx_components_;
     std::vector<RTT::TaskContext* > buffer_split_components_;
     std::vector<RTT::TaskContext* > buffer_concate_components_;
+
+    std::vector<RTT::TaskContext* > buffer_groups_components_;
 
     std::vector<common_behavior::InputBufferInfo > lowerInputBuffers_;
     std::vector<common_behavior::InputBufferInfo > upperInputBuffers_;
