@@ -864,7 +864,9 @@ bool SubsystemDeployer::setTriggerOnStart(RTT::TaskContext* tc, bool trigger) {
     return true;
 }
 
-bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_name, const std::string& subsystem_subname) {
+bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_name, const std::string& subsystem_subname, int cpu_num) {
+
+    cpu_num_ = cpu_num;
 
     master_package_name_ = master_package_name;
     subname_ = subsystem_subname;
@@ -1605,6 +1607,12 @@ bool SubsystemDeployer::configure() {
         if (!master_activity->setPriority(5)) {
             Logger::log() << Logger::Warning << "Could not set priority for Master Component (scheduler: ORO_SCHED_RT)." << Logger::endl;
         }
+        if (!master_activity->setCpuAffinity(1<<cpu_num_)) {
+            Logger::log() << Logger::Warning << "Could not set CPU affinity mask." << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "Set CPU affinity mask of master_activity to " << (1<<cpu_num_) << Logger::endl;
+        }
     }
 
     for (int i = 0; i < buffer_groups_components_.size(); ++i) {
@@ -1618,14 +1626,20 @@ bool SubsystemDeployer::configure() {
         if (!act->setScheduler(ORO_SCHED_RT)) {
             Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_groups_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
         }
-        if (!act->setPriority(2)) {
+        if (!act->setPriority(4)) {
             Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_groups_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
+        }
+        if (!act->setCpuAffinity(1<<cpu_num_)) {
+            Logger::log() << Logger::Warning << "Could not set CPU affinity mask." << Logger::endl;
+        }
+        else {
+            Logger::log() << Logger::Info << "Set CPU affinity mask of task '" << buffer_groups_components_[i]->getName() << "' to " << (1<<cpu_num_) << Logger::endl;
         }
 
         // trigger all input buffers components
         buffer_groups_components_[i]->trigger();
     }
-
+/*
     for (int i = 0; i < buffer_rx_components_.size(); ++i) {
         // rise priority of all input buffers components
         RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_rx_components_[i]->getActivity());
@@ -1645,12 +1659,13 @@ bool SubsystemDeployer::configure() {
         buffer_rx_components_[i]->trigger();
     }
 //    dc_->getPeer("X")->trigger();
+*/
 
     std::vector<RTT::TaskContext* > all_comp = getAllComponents();
     for (int i = 0; i < all_comp.size(); ++i) {
         RTT::Activity* act = dynamic_cast<RTT::Activity* >(all_comp[i]->getActivity());
         if (act) {
-            Logger::log() << Logger::Info << "component \'" << all_comp[i]->getName() << "\', activity: \'" << act->getName() << "\', sched: " << act->getScheduler() << ", prio: " << act->getPriority() << Logger::endl;
+            Logger::log() << Logger::Info << "component \'" << all_comp[i]->getName() << "\', activity: \'" << act->getName() << "\', sched: " << act->getScheduler() << ", prio: " << act->getPriority() << ", CPU affinity: " << act->getCpuAffinity() << Logger::endl;
         }
         else {
             Logger::log() << Logger::Info << "component \'" << all_comp[i]->getName() << "\', activity: NULL" << Logger::endl;

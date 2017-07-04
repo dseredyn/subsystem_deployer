@@ -71,6 +71,7 @@ int main(int argc, char** argv)
     std::string subsystem_subname;
     std::vector<std::string> scripts;
     std::vector<std::string> subsystem_xmls;
+    int cpu_num = 0;
     for (int i = 1; i < optIndex; ++i) {
 //        std::cout << "i: " << i << std::endl;
 //        std::cout << "arg2: \'" << argv[i] << "\'" << std::endl;
@@ -90,6 +91,12 @@ int main(int argc, char** argv)
         if (strcmp("-n", argv[i]) == 0) {
             subsystem_subname = argv[i+1];
         }
+
+        if (strcmp("-c", argv[i]) == 0) {
+            std::string cpu_num_str = argv[i+1];
+            std::istringstream ss(cpu_num_str);
+            ss >> cpu_num;
+        }
     }
 
     if (master_package_name.empty()) {
@@ -106,7 +113,7 @@ int main(int argc, char** argv)
         RTT::Logger::log().mayLogStdOut(true);
         RTT::Logger::log().setLogLevel(RTT::Logger::Info);
 
-        if (!depl.initializeSubsystem(master_package_name, subsystem_subname)) {
+        if (!depl.initializeSubsystem(master_package_name, subsystem_subname, cpu_num)) {
             return -2;
         }
 

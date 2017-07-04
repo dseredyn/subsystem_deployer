@@ -44,7 +44,7 @@ public:
 
     bool import(const std::string& name);
 
-    bool initializeSubsystem(const std::string& master_package_name, const std::string& subsystem_subname=std::string());
+    bool initializeSubsystem(const std::string& master_package_name, const std::string& subsystem_subname=std::string(), int cpu_num=0);
 
     bool runXmls(const std::vector<std::string>& xmlFiles);
     bool runScripts(const std::vector<std::string>& scriptFiles);
@@ -155,6 +155,8 @@ private:
     std::vector<std::pair<std::string, std::string > > latched_connections_;
 
     bool is_initialized_;
+
+    int cpu_num_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_
