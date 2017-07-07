@@ -72,30 +72,40 @@ int main(int argc, char** argv)
     std::vector<std::string> scripts;
     std::vector<std::string> subsystem_xmls;
     int cpu_num = 0;
+    int rt_prio = 0;
     for (int i = 1; i < optIndex; ++i) {
-//        std::cout << "i: " << i << std::endl;
-//        std::cout << "arg2: \'" << argv[i] << "\'" << std::endl;
-
         if (strcmp("-s", argv[i]) == 0) {
             scripts.push_back(argv[i+1]);
+            ++i;
         }
 
         if (strcmp("-x", argv[i]) == 0) {
             subsystem_xmls.push_back(argv[i+1]);
+            ++i;
         }
 
         if (strcmp("-m", argv[i]) == 0) {
             master_package_name = argv[i+1];
+            ++i;
         }
 
         if (strcmp("-n", argv[i]) == 0) {
             subsystem_subname = argv[i+1];
+            ++i;
         }
 
         if (strcmp("-c", argv[i]) == 0) {
             std::string cpu_num_str = argv[i+1];
             std::istringstream ss(cpu_num_str);
             ss >> cpu_num;
+            ++i;
+        }
+
+        if (strcmp("-p", argv[i]) == 0) {
+            std::string rt_prio_str = argv[i+1];
+            std::istringstream ss(rt_prio_str);
+            ss >> rt_prio;
+            ++i;
         }
     }
 
@@ -125,7 +135,7 @@ int main(int argc, char** argv)
             return -4;
         }
 
-        if (!depl.configure()) {
+        if (!depl.configure(rt_prio)) {
             return -5;
         }
 

@@ -53,7 +53,7 @@ public:
 
     boost::shared_ptr<OCL::DeploymentComponent >& getDc();
 
-    bool configure();
+    bool configure(int rt_prio=0);
 
     const std::vector<common_behavior::InputBufferInfo >& getLowerInputBuffers() const;
     const std::vector<common_behavior::InputBufferInfo >& getUpperInputBuffers() const;
@@ -157,6 +157,8 @@ private:
     bool is_initialized_;
 
     int cpu_num_;
+
+    std::string master_component_name_;
 };
 
 #endif  // COMMON_BEHAVIOR_SUBSYSTEM_DEPLOYER_H_

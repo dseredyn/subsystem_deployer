@@ -55,10 +55,12 @@ using namespace RTT;
 using namespace std;
 
 class SubsystemDeployerRosService : public SubsystemDeployerRosServiceBase {
+    std::string master_component_name_;
 public:
-    SubsystemDeployerRosService(const SubsystemDeployer& d)
+    SubsystemDeployerRosService(const SubsystemDeployer& d, const std::string & master_component_name)
             : d_(d)
-            , ss_GetSubsystemInfo_( n_.advertiseService(d.getSubsystemName() + "/getSubsystemInfo", &SubsystemDeployerRosService::getSubsystemInfo, this) ) {
+            , ss_GetSubsystemInfo_( n_.advertiseService(d.getSubsystemName() + "/getSubsystemInfo", &SubsystemDeployerRosService::getSubsystemInfo, this) )
+            , master_component_name_(master_component_name) {
     }
 
     std::string quote(std::string const& name){
@@ -272,7 +274,7 @@ void scanService(Service::shared_ptr sv)
 
         RTT::TaskContext* master_component = NULL;
         for (int i = 0; i < components.size(); ++i) {
-            if (components[i]->getName() == "master_component") {
+            if (components[i]->getName() == master_component_name_) {
                 master_component = components[i];
                 break;
             }
@@ -687,16 +689,20 @@ bool SubsystemDeployer::connectPorts(const std::string& from, const std::string&
         RTT::base::PortInterface *pa = strToPort(from);
         RTT::base::PortInterface *pb = strToPort(to);
         if (!pa) {
-            RTT::log(RTT::Error) << "no such port : " << from << RTT::endlog();
+            RTT::log(RTT::Error) << "no such port: '" << from << "'" << RTT::endlog();
             return false;
         }
         if (!pb) {
-            RTT::log(RTT::Error) << "no such port : " << to << RTT::endlog();
+            RTT::log(RTT::Error) << "no such port: '" << to << "'" << RTT::endlog();
             return false;
         }
 
         std::string conv_type = common_behavior::PortConverterFactory::Instance()->getPortConverter(pa, pb);
 
+        if (conv_type.empty()) {
+            RTT::log(RTT::Error) << "could not find converted for ports: '" << from << "' and '" << to << "'" << RTT::endlog();
+            return false;
+        }
         std::ostringstream strs;
         strs << counter;
         counter++;
@@ -717,7 +723,7 @@ bool SubsystemDeployer::connectPorts(const std::string& from, const std::string&
         }
 
         // set name of both new connections the same as the old one
-        connections_.push_back( Connection(from, comp_name + ".data_INPORT", getConnectionName(from, to), getConnectionNameLatex(from, to), ConnPolicy()) );
+        connections_.push_back( Connection(from, comp_name + ".data_INPORT", getConnectionName(from, to), getConnectionNameLatex(from, to), cp) );
         connections_.push_back( Connection(comp_name + ".data_OUTPORT", to, getConnectionName(from, to), getConnectionNameLatex(from, to), cp) );
 
         converter_components_.push_back(dc_->getPeer(comp_name));
@@ -756,7 +762,7 @@ bool SubsystemDeployer::createInputBuffers(const std::vector<common_behavior::In
 
         // connect Split-Rx ports
 //           if (!dc_->connect(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
-        if (!connectPorts(std::string("master_component.") + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy())) {
+        if (!connectPorts(master_component_name_ + "." + alias + "_OUTPORT", alias + "Split.msg_INPORT", ConnPolicy(ConnPolicy::DATA, ConnPolicy::UNSYNC))) {
             RTT::log(RTT::Error) << "could not connect ports Split-Rx: " << alias << RTT::endlog();
             return false;
         }
@@ -809,7 +815,7 @@ bool SubsystemDeployer::createOutputBuffers(const std::vector<common_behavior::O
 //            RTT::log(RTT::Error) << "could not connect ports Concate-Tx: " << alias << RTT::endlog();
 //            return false;
 //        }
-        if (!connectPorts(alias + "Concate.msg_OUTPORT", std::string("Y.") + alias + "_INPORT", ConnPolicy())) {
+        if (!connectPorts(alias + "Concate.msg_OUTPORT", std::string("Y.") + alias + "_INPORT", ConnPolicy(ConnPolicy::DATA, ConnPolicy::UNSYNC))) {
             RTT::log(RTT::Error) << "could not connect ports Concate-Y: " << alias << RTT::endlog();
             return false;
         }
@@ -840,7 +846,7 @@ bool SubsystemDeployer::createBufferGroups(const std::vector<std::vector<std::st
         }
 
         std::ostringstream port_name;
-        port_name << "master_component.buffer_group_" << i << "_INPORT";
+        port_name << master_component_name_ << ".buffer_group_" << i << "_INPORT";
         if (!connectPorts(comp_name.str() + ".msg_OUTPORT", port_name.str(), ConnPolicy())) {
             RTT::log(RTT::Error) << "could not connect ports X-master_component: " << i << RTT::endlog();
             return false;
@@ -874,12 +880,12 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
 
     Logger::In in("SubsystemDeployer::init " + getSubsystemName());
 
-    ros_service.reset( new SubsystemDeployerRosService(*this) );
+    master_component_name_ = "master_component";//std::string("master_") + master_package_name;
+    ros_service.reset( new SubsystemDeployerRosService(*this, master_component_name_) );
 
     dc_.reset(new OCL::DeploymentComponent(name_));
 
-
-
+/*
     RTT::Activity* dc_activity = dynamic_cast<RTT::Activity* >(dc_->getActivity());
     if (!dc_activity) {
         Logger::log() << Logger::Warning << "Could not set scheduler for Deployment Component to ORO_SCHED_RT. Could not get Activity." << Logger::endl;
@@ -892,9 +898,7 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
             Logger::log() << Logger::Warning << "Could not set priority for Deployment Component to 0." << Logger::endl;
         }
     }
-
-
-
+*/
 
     dc_->import("rtt_ros");
 
@@ -976,12 +980,12 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
     //
     // load master component
     //
-    if (!dc_->loadComponent("master_component","MasterComponent")) {
+    if (!dc_->loadComponent(master_component_name_,"MasterComponent")) {
         Logger::log() << Logger::Error << "could not load MasterComponent" << Logger::endl;
         return false;
     }
 
-    master_component_ = dc_->getPeer("master_component");
+    master_component_ = dc_->getPeer(master_component_name_);
 
     if (!master_component_) {
         Logger::log() << Logger::Error << "master_component in NULL" << Logger::endl;
@@ -1015,6 +1019,14 @@ bool SubsystemDeployer::initializeSubsystem(const std::string& master_package_na
         Logger::log() << Logger::Error << "Could not add Conman Scheme to Master Component" << Logger::endl;
         return false;
     }
+
+    RTT::OperationCaller<void(const std::string&)> master_component_setThreadName = master_component_->getOperation("setThreadName");
+    if (!master_component_setThreadName.ready()) {
+        Logger::log() << Logger::Error << "Could not get setThreadName operation of Master Component" << Logger::endl;
+        return false;
+    }
+
+    master_component_setThreadName(master_package_name);
 
 //    RTT::OperationCaller<bool(RTT::TaskContext*)> master_component_addTimer = master_component_->getOperation("addTimer");
 //    if (!master_component_addTimer.ready()) {
@@ -1303,7 +1315,7 @@ bool SubsystemDeployer::isSubsystemOutput(const std::string& port_name) const {
     return false;
 }
 
-bool SubsystemDeployer::configure() {
+bool SubsystemDeployer::configure(int rt_prio) {
     Logger::In in("SubsystemDeployer::configure " + getSubsystemName());
 
     if (!setChannelsNames()) {
@@ -1438,12 +1450,24 @@ bool SubsystemDeployer::configure() {
         }
     }
 
+// !!!!
+// !!!!
+// !!!!
+// TODO: protect RT - ports from ros streams !!!
+// !!!!
+// !!!!
+// !!!!
+// !!!!
+
     // connect ROS topics
     for (std::list<std::pair<std::string, std::string> >::iterator it = ros_streams_.begin(); it != ros_streams_.end(); ++it) {
         // TODO: check if from/to is input/output
         if (!dc_->stream(it->first, rtt_roscomm::topic(it->second))) {
             RTT::log(RTT::Error) << "Unable to connect \'" << it->first << "\' and \'" << it->second << "\'" << RTT::endlog();
             return false;
+        }
+        else {
+            RTT::log(RTT::Info) << "created ROS stream: \'" << it->first << "\' -> \'" << it->second << "\'" << RTT::endlog();
         }
     }
 
@@ -1471,7 +1495,8 @@ bool SubsystemDeployer::configure() {
     conman_peers.insert(conman_peers.end(), buffer_tx_components_.begin(), buffer_tx_components_.end());
     conman_peers.insert(conman_peers.end(), buffer_split_components_.begin(), buffer_split_components_.end());
     conman_peers.insert(conman_peers.end(), buffer_concate_components_.begin(), buffer_concate_components_.end());
-    conman_peers.push_back(dc_->getPeer("Y"));
+    conman_peers.insert(conman_peers.end(), converter_components_.begin(), converter_components_.end());
+//    conman_peers.push_back(dc_->getPeer("Y"));
     std::vector<bool > conman_peers_running(conman_peers.size(), false);
     for (int i = 0; i < conman_peers.size(); ++i) {
         if (conman_peers[i]->isRunning()) {
@@ -1482,6 +1507,9 @@ bool SubsystemDeployer::configure() {
         if (!scheme_addBlock(conman_peers[i]->getName())) {
             Logger::log() << Logger::Warning << "Could not add block to Conman scheme: " << conman_peers[i]->getName() << Logger::endl;
             return true;
+        }
+        else {
+            Logger::log() << Logger::Info << "added block to conman scheme: " << conman_peers[i]->getName() << Logger::endl;
         }
 
         // Disable passing port events to peers' master (i.e. scheme and master_component).
@@ -1544,7 +1572,7 @@ bool SubsystemDeployer::configure() {
     //
     // remove unused ports from msg concate/split components
     //
-/*    for (int i = 0; i < core_components.size(); ++i) {
+    for (int i = 0; i < core_components.size(); ++i) {
         RTT::TaskContext* tc = core_components[i];
 
         RTT::OperationInterfacePart *removeUnconnectedPortsOp;
@@ -1561,7 +1589,75 @@ bool SubsystemDeployer::configure() {
             }
         }
     }
+
+
+    if (rt_prio > 0 && !use_sim_time_) {
+        RTT::Activity* master_activity = dynamic_cast<RTT::Activity* >(master_component_->getActivity());
+        if (!master_activity) {
+            Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT. Could not get Activity." << Logger::endl;
+        }
+        else {
+            if (!master_activity->setScheduler(ORO_SCHED_RT)) {
+                Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT." << Logger::endl;
+            }
+            if (!master_activity->setPriority(rt_prio)) {
+                Logger::log() << Logger::Warning << "Could not set priority for Master Component (scheduler: ORO_SCHED_RT)." << Logger::endl;
+            }
+            if (!master_activity->setCpuAffinity(1<<cpu_num_)) {
+                Logger::log() << Logger::Warning << "Could not set CPU affinity mask." << Logger::endl;
+            }
+            else {
+                Logger::log() << Logger::Info << "Set CPU affinity mask of master_activity to " << (1<<cpu_num_) << Logger::endl;
+            }
+        }
+
+        for (int i = 0; i < buffer_groups_components_.size(); ++i) {
+            // rise priority of all input buffers components
+            RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_groups_components_[i]->getActivity());
+            if (!act) {
+                Logger::log() << Logger::Error << "Could not set scheduler and priority for component \'" << buffer_groups_components_[i]->getName() << "\'. Could not get Activity." << Logger::endl;
+                return false;
+            }
+
+            if (!act->setScheduler(ORO_SCHED_RT)) {
+                Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_groups_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
+            }
+            if (!act->setPriority(rt_prio-2)) {
+                Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_groups_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
+            }
+            if (!act->setCpuAffinity(1<<cpu_num_)) {
+                Logger::log() << Logger::Warning << "Could not set CPU affinity mask." << Logger::endl;
+            }
+            else {
+                Logger::log() << Logger::Info << "Set CPU affinity mask of task '" << buffer_groups_components_[i]->getName() << "' to " << (1<<cpu_num_) << Logger::endl;
+            }
+
+            // trigger all input buffers components
+//            buffer_groups_components_[i]->trigger();
+        }
+/*
+        for (int i = 0; i < buffer_rx_components_.size(); ++i) {
+            // rise priority of all input buffers components
+            RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_rx_components_[i]->getActivity());
+            if (!act) {
+                Logger::log() << Logger::Error << "Could not set scheduler and priority for component \'" << buffer_rx_components_[i]->getName() << "\'. Could not get Activity." << Logger::endl;
+                return false;
+            }
+
+            if (!act->setScheduler(ORO_SCHED_RT)) {
+                Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_rx_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
+            }
+            if (!act->setPriority(2)) {
+                Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_rx_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
+            }
+
+            // trigger all input buffers components
+            buffer_rx_components_[i]->trigger();
+        }
+    //    dc_->getPeer("X")->trigger();
 */
+    }
+
 
     // start conman scheme first
     if (!scheme_->start()) {
@@ -1592,74 +1688,15 @@ bool SubsystemDeployer::configure() {
         }
     }
 
-    for (int i = 0; i < converter_components_.size(); ++i) {
-        converter_components_[i]->start();
-    }
+//    for (int i = 0; i < converter_components_.size(); ++i) {
+//        converter_components_[i]->start();
+//    }
 
-    RTT::Activity* master_activity = dynamic_cast<RTT::Activity* >(master_component_->getActivity());
-    if (!master_activity) {
-        Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT. Could not get Activity." << Logger::endl;
-    }
-    else {
-        if (!master_activity->setScheduler(ORO_SCHED_RT)) {
-            Logger::log() << Logger::Warning << "Could not set scheduler for Master Component to ORO_SCHED_RT." << Logger::endl;
-        }
-        if (!master_activity->setPriority(5)) {
-            Logger::log() << Logger::Warning << "Could not set priority for Master Component (scheduler: ORO_SCHED_RT)." << Logger::endl;
-        }
-        if (!master_activity->setCpuAffinity(1<<cpu_num_)) {
-            Logger::log() << Logger::Warning << "Could not set CPU affinity mask." << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "Set CPU affinity mask of master_activity to " << (1<<cpu_num_) << Logger::endl;
-        }
-    }
-
+    // trigger all input buffers components
     for (int i = 0; i < buffer_groups_components_.size(); ++i) {
-        // rise priority of all input buffers components
-        RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_groups_components_[i]->getActivity());
-        if (!act) {
-            Logger::log() << Logger::Error << "Could not set scheduler and priority for component \'" << buffer_groups_components_[i]->getName() << "\'. Could not get Activity." << Logger::endl;
-            return false;
-        }
-
-        if (!act->setScheduler(ORO_SCHED_RT)) {
-            Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_groups_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
-        }
-        if (!act->setPriority(4)) {
-            Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_groups_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
-        }
-        if (!act->setCpuAffinity(1<<cpu_num_)) {
-            Logger::log() << Logger::Warning << "Could not set CPU affinity mask." << Logger::endl;
-        }
-        else {
-            Logger::log() << Logger::Info << "Set CPU affinity mask of task '" << buffer_groups_components_[i]->getName() << "' to " << (1<<cpu_num_) << Logger::endl;
-        }
-
-        // trigger all input buffers components
         buffer_groups_components_[i]->trigger();
     }
-/*
-    for (int i = 0; i < buffer_rx_components_.size(); ++i) {
-        // rise priority of all input buffers components
-        RTT::Activity* act = dynamic_cast<RTT::Activity* >(buffer_rx_components_[i]->getActivity());
-        if (!act) {
-            Logger::log() << Logger::Error << "Could not set scheduler and priority for component \'" << buffer_rx_components_[i]->getName() << "\'. Could not get Activity." << Logger::endl;
-            return false;
-        }
 
-        if (!act->setScheduler(ORO_SCHED_RT)) {
-            Logger::log() << Logger::Warning << "Could not set scheduler for component \'" << buffer_rx_components_[i]->getName() << "\' to ORO_SCHED_RT." << Logger::endl;
-        }
-        if (!act->setPriority(2)) {
-            Logger::log() << Logger::Warning << "Could not set priority for component \'" << buffer_rx_components_[i]->getName() << "\'(scheduler: ORO_SCHED_RT)." << Logger::endl;
-        }
-
-        // trigger all input buffers components
-        buffer_rx_components_[i]->trigger();
-    }
-//    dc_->getPeer("X")->trigger();
-*/
 
     std::vector<RTT::TaskContext* > all_comp = getAllComponents();
     for (int i = 0; i < all_comp.size(); ++i) {
@@ -1806,6 +1843,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
             const char *latex_attr = connection_elem->Attribute("latex");
 
             ConnPolicy cp = ConnPolicy();
+            cp.lock_policy = ConnPolicy::UNSYNC;
             const TiXmlElement *conn_policy_elem = connection_elem->FirstChildElement("conn_policy");
             if (conn_policy_elem) {
                 const char *conn_policy_type_attr = conn_policy_elem->Attribute("type");
@@ -1832,6 +1870,8 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                         RTT::log(RTT::Error) << "'size' attribute should not be defined for 'data' connection policy." << RTT::endlog();
                         return false;
                     }
+                    cp.type = ConnPolicy::DATA;
+                    cp.size = buffer_size;
                     // do nothing, this is the default connection policy
                 }
                 else if (strcmp(conn_policy_type_attr, "buffer") == 0) {
@@ -1839,6 +1879,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                         RTT::log(RTT::Error) << "'size' attribute must be defined for 'buffer' connection policy." << RTT::endlog();
                         return false;
                     }
+                    cp.lock_policy = ConnPolicy::LOCK_FREE;
                     cp.type = ConnPolicy::BUFFER;
                     cp.size = buffer_size;
                 }
@@ -1847,6 +1888,7 @@ bool SubsystemDeployer::runXmls(const std::vector<std::string>& xmlFiles) {
                         RTT::log(RTT::Error) << "'size' attribute must be defined for 'circular_buffer' connection policy." << RTT::endlog();
                         return false;
                     }
+                    cp.lock_policy = ConnPolicy::LOCK_FREE;
                     cp.type = ConnPolicy::CIRCULAR_BUFFER;
                     cp.size = buffer_size;
                     RTT::log(RTT::Info) << "creating circular buffer of size " << buffer_size << "" << RTT::endlog();
